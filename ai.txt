@@ -1,0 +1,12 @@
+I used AI to assist with:
+- Implementing error handling and input validation for API endpoints
+- Creating in-memory rate-limiting logic for password reset requests
+- Debugging and fixing routes that failed automated tests, including:
+  - Fixing promotion type detection and one-time usage tracking
+  - Correcting route ordering (e.g., /users/me before /users/:userId)
+  - Adding strict field validation to reject unexpected fields
+  - Handling null vs undefined values in request bodies
+  - Implementing proper date validation
+  - Fixing JWT authentication and authorization flows
+- Creating debug logging middleware for troubleshooting (later removed)
+- Writing ai.txt

@@ -1,0 +1,3395 @@
+#!/usr/bin/env node
+"use strict";
+
+require("dotenv").config();
+
+const port = (() => {
+  const args = process.argv;
+
+  if (args.length !== 3) {
+    console.error("usage: node index.js port");
+    process.exit(1);
+  }
+
+  const num = parseInt(args[2], 10);
+  if (isNaN(num)) {
+    console.error("error: argument must be an integer.");
+    process.exit(1);
+  }
+
+  return num;
+})();
+
+const express = require("express");
+const { PrismaClient } = require("@prisma/client");
+const jwt = require("jsonwebtoken");
+const { expressjwt: ejwt } = require("express-jwt");
+const { v4: uuidv4 } = require("uuid");
+const { z } = require("zod");
+const bcrypt = require("bcrypt");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+
+const app = express();
+const prisma = new PrismaClient();
+
+const uploadsDir = path.join(__dirname, "uploads", "avatars");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const userId = req.user?.id || req.auth?.id;
+    const ext = path.extname(file.originalname);
+    cb(null, `${userId}-${Date.now()}${ext}`);
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif|webp/;
+    const extname = allowedTypes.test(
+      path.extname(file.originalname).toLowerCase()
+    );
+    const mimetype = allowedTypes.test(file.mimetype);
+
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed"));
+    }
+  },
+});
+
+const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
+
+const jwtMiddleware = ejwt({
+  secret: JWT_SECRET,
+  algorithms: ["HS256"],
+});
+
+const roleHierarchy = {
+  regular: 0,
+  cashier: 1,
+  manager: 2,
+  superuser: 3,
+};
+
+const requireRole = (minRole) => {
+  return (req, res, next) => {
+    const userRole = req.auth?.role || req.user?.role;
+
+    if (!userRole) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const userLevel = roleHierarchy[userRole];
+    const requiredLevel = roleHierarchy[minRole];
+
+    if (userLevel < requiredLevel) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    if (req.auth && !req.user) {
+      req.user = req.auth;
+    }
+
+    next();
+  };
+};
+
+const createUserSchema = z
+  .object({
+    utorid: z
+      .string()
+      .min(1, "UTORid is required")
+      .regex(/^[a-zA-Z][a-zA-Z0-9]*$/, "Invalid utorid"),
+    name: z.string().min(1, "Name is required").max(50),
+    email: z
+      .string()
+      .email("Invalid email format")
+      .refine(
+        (email) => email.endsWith("@mail.utoronto.ca"),
+        "Email must be a valid UofT email"
+      ),
+  })
+  .strict();
+
+const resetRateLimiter = new Map();
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, timestamp] of resetRateLimiter.entries()) {
+    if (now - timestamp > 60000) {
+      resetRateLimiter.delete(ip);
+    }
+  }
+}, 300000);
+
+app.use(express.json());
+
+// ADD YOUR WORK HERE
+app.post("/auth/tokens", async (req, res) => {
+  try {
+    const { utorid, password } = req.body;
+
+    if (!utorid || !password) {
+      return res.status(400).json({
+        error: "Both utorid and password are required",
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { utorid },
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        error: "Invalid credentials",
+      });
+    }
+
+    if (!user.password) {
+      return res.status(401).json({
+        error: "Invalid credentials",
+      });
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        error: "Invalid credentials",
+      });
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLogin: new Date() },
+    });
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        utorid: user.utorid,
+        role: user.role,
+      },
+      JWT_SECRET,
+      {
+        expiresIn: "7d",
+      }
+    );
+
+    return res.status(200).json({
+      token,
+      expiresAt,
+    });
+  } catch (error) {
+    console.error("Error authenticating user:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/auth/resets", async (req, res) => {
+  try {
+    const { utorid } = req.body;
+
+    if (!utorid) {
+      return res.status(400).json({
+        error: "UTORid is required",
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { utorid },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const lastRequestTime = resetRateLimiter.get(utorid);
+    const now = Date.now();
+
+    if (lastRequestTime && now - lastRequestTime < 60000) {
+      return res.status(429).json({
+        error: "Too many requests. Please try again later.",
+      });
+    }
+
+    resetRateLimiter.set(utorid, now);
+
+    const resetToken = uuidv4();
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 1);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        resetToken,
+        expiresAt,
+      },
+    });
+
+    return res.status(202).json({
+      expiresAt,
+      resetToken,
+    });
+  } catch (error) {
+    console.error("Error requesting password reset:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/auth/resets/:resetToken", async (req, res) => {
+  try {
+    const { resetToken } = req.params;
+    const { utorid, password } = req.body;
+
+    if (!utorid || !password) {
+      return res.status(400).json({
+        error: "Both utorid and password are required",
+      });
+    }
+
+    const passwordRegex =
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/;
+
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({
+        error:
+          "Password must be 8-20 characters with at least one uppercase, one lowercase, one number, and one special character",
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { resetToken },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        error: "Reset token not found",
+      });
+    }
+
+    if (user.utorid !== utorid) {
+      return res.status(401).json({
+        error: "Unauthorized",
+      });
+    }
+
+    if (!user.expiresAt || new Date() > user.expiresAt) {
+      return res.status(410).json({
+        error: "Reset token has expired",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+        resetToken: null,
+        expiresAt: null,
+      },
+    });
+
+    return res.status(200).json({
+      message: "Password reset successfully",
+    });
+  } catch (error) {
+    console.error("Error resetting password:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/users", jwtMiddleware, requireRole("cashier"), async (req, res) => {
+  try {
+    const validation = createUserSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res
+        .status(400)
+        .json({ error: validation.error.errors[0].message });
+    }
+
+    const { utorid, name, email } = validation.data;
+
+    const existingUtorid = await prisma.user.findUnique({
+      where: { utorid },
+    });
+
+    if (existingUtorid) {
+      return res
+        .status(409)
+        .json({ error: "User with this utorid already exists" });
+    }
+
+    const existingEmail = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (existingEmail) {
+      return res
+        .status(409)
+        .json({ error: "User with this email already exists" });
+    }
+
+    const resetToken = uuidv4();
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    const user = await prisma.user.create({
+      data: {
+        utorid,
+        name,
+        email,
+        resetToken,
+        expiresAt,
+        verified: false,
+        role: "regular",
+      },
+    });
+
+    return res.status(201).json({
+      id: user.id,
+      utorid: user.utorid,
+      name: user.name,
+      email: user.email,
+      verified: user.verified,
+      expiresAt: user.expiresAt,
+      resetToken: user.resetToken,
+    });
+  } catch (error) {
+    console.error("Error creating user:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/users", jwtMiddleware, requireRole("manager"), async (req, res) => {
+  try {
+    const { name, role, verified, activated, page = 1, limit = 10 } = req.query;
+
+    const where = {};
+
+    if (name) {
+      where.OR = [{ utorid: { contains: name } }, { name: { contains: name } }];
+    }
+
+    if (role) {
+      where.role = role;
+    }
+
+    if (verified !== undefined) {
+      where.verified = verified === "true" || verified === true;
+    }
+
+    if (activated !== undefined) {
+      const isActivated = activated === "true" || activated === true;
+      if (isActivated) {
+        where.lastLogin = { not: null };
+      } else {
+        where.lastLogin = null;
+      }
+    }
+
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 10;
+
+    if (isNaN(pageNum) || pageNum < 1) {
+      return res.status(400).json({ error: "Invalid page parameter" });
+    }
+    if (isNaN(limitNum) || limitNum < 1) {
+      return res.status(400).json({ error: "Invalid limit parameter" });
+    }
+
+    const skip = (pageNum - 1) * limitNum;
+
+    const count = await prisma.user.count({ where });
+
+    const results = await prisma.user.findMany({
+      where,
+      skip,
+      take: limitNum,
+      select: {
+        id: true,
+        utorid: true,
+        name: true,
+        email: true,
+        birthday: true,
+        role: true,
+        points: true,
+        createdAt: true,
+        lastLogin: true,
+        verified: true,
+        avatarUrl: true,
+      },
+    });
+
+    return res.status(200).json({
+      count,
+      results,
+    });
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get(
+  "/users/:userId",
+  jwtMiddleware,
+  requireRole("cashier"),
+  async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const userIdNum = parseInt(userId, 10);
+
+      if (isNaN(userIdNum)) {
+        return res.status(400).json({ error: "Invalid user ID" });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: userIdNum },
+        include: {
+          userPromotions: {
+            include: {
+              promotion: true,
+            },
+          },
+        },
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const availablePromotions = await prisma.promotion.findMany({
+        where: {
+          AND: [
+            { minSpending: null },
+            { rate: null },
+            { points: { not: null } },
+            {
+              NOT: {
+                userPromotions: {
+                  some: {
+                    userId: userIdNum,
+                  },
+                },
+              },
+            },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          minSpending: true,
+          rate: true,
+          points: true,
+        },
+      });
+
+      const isManager = ["manager", "superuser"].includes(req.user.role);
+
+      if (isManager) {
+        return res.status(200).json({
+          id: user.id,
+          utorid: user.utorid,
+          name: user.name,
+          email: user.email,
+          birthday: user.birthday,
+          role: user.role,
+          points: user.points,
+          createdAt: user.createdAt,
+          lastLogin: user.lastLogin,
+          verified: user.verified,
+          avatarUrl: user.avatarUrl,
+          promotions: availablePromotions,
+        });
+      } else {
+        return res.status(200).json({
+          id: user.id,
+          utorid: user.utorid,
+          name: user.name,
+          points: user.points,
+          verified: user.verified,
+          promotions: availablePromotions,
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.patch(
+  "/users/:userId",
+  jwtMiddleware,
+  requireRole("manager"),
+  async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const userIdNum = parseInt(userId, 10);
+
+      if (isNaN(userIdNum)) {
+        return res.status(400).json({ error: "Invalid user ID" });
+      }
+
+      const { email, verified, suspicious, role } = req.body;
+
+      const existingUser = await prisma.user.findUnique({
+        where: { id: userIdNum },
+      });
+
+      if (!existingUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const updateData = {};
+
+      if (email !== undefined) {
+        updateData.email = email;
+      }
+
+      if (verified !== undefined) {
+        updateData.verified = verified;
+      }
+
+      if (suspicious !== undefined) {
+        updateData.suspicious = suspicious;
+      }
+
+      if (role !== undefined) {
+        const allowedRoles =
+          req.user.role === "superuser"
+            ? ["regular", "cashier", "manager", "superuser"]
+            : ["regular", "cashier"];
+
+        if (!allowedRoles.includes(role)) {
+          return res.status(403).json({
+            error: "You do not have permission to assign this role",
+          });
+        }
+
+        if (role === "cashier") {
+          const isSuspicious =
+            suspicious !== undefined ? suspicious : existingUser.suspicious;
+          if (isSuspicious) {
+            return res.status(400).json({
+              error: "Cannot promote suspicious user to cashier",
+            });
+          }
+          updateData.suspicious = false;
+        }
+
+        updateData.role = role;
+      }
+
+      const updatedUser = await prisma.user.update({
+        where: { id: userIdNum },
+        data: updateData,
+      });
+
+      const response = {
+        id: updatedUser.id,
+        utorid: updatedUser.utorid,
+        name: updatedUser.name,
+      };
+
+      if (email !== undefined) response.email = updatedUser.email;
+      if (verified !== undefined) response.verified = updatedUser.verified;
+      if (suspicious !== undefined || role === "cashier")
+        response.suspicious = updatedUser.suspicious;
+      if (role !== undefined) response.role = updatedUser.role;
+
+      return res.status(200).json(response);
+    } catch (error) {
+      console.error("Error updating user:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.get(
+  "/users/me",
+  jwtMiddleware,
+  requireRole("regular"),
+  async (req, res) => {
+    try {
+      const userId = req.user?.id || req.auth?.id;
+
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const availablePromotions = await prisma.promotion.findMany({
+        where: {
+          AND: [
+            { minSpending: null },
+            { rate: null },
+            { points: { not: null } },
+            {
+              NOT: {
+                userPromotions: {
+                  some: {
+                    userId: userId,
+                  },
+                },
+              },
+            },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          minSpending: true,
+          rate: true,
+          points: true,
+        },
+      });
+
+      return res.status(200).json({
+        id: user.id,
+        utorid: user.utorid,
+        name: user.name,
+        email: user.email,
+        birthday: user.birthday,
+        role: user.role,
+        points: user.points,
+        createdAt: user.createdAt,
+        lastLogin: user.lastLogin,
+        verified: user.verified,
+        avatarUrl: user.avatarUrl,
+        promotions: availablePromotions,
+      });
+    } catch (error) {
+      console.error("Error fetching user profile:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.patch(
+  "/users/me",
+  jwtMiddleware,
+  requireRole("regular"),
+  upload.single("avatar"),
+  async (req, res) => {
+    try {
+      const userId = req.user?.id || req.auth?.id;
+
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { name, email, birthday } = req.body;
+      const updateData = {};
+
+      if (name !== undefined) {
+        if (name.length < 1 || name.length > 50) {
+          return res
+            .status(400)
+            .json({ error: "Name must be between 1 and 50 characters" });
+        }
+        updateData.name = name;
+      }
+
+      if (email !== undefined) {
+        if (!email.endsWith("@mail.utoronto.ca")) {
+          return res
+            .status(400)
+            .json({ error: "Email must be a valid UofT email" });
+        }
+
+        const existingUser = await prisma.user.findUnique({
+          where: { email },
+        });
+
+        if (existingUser && existingUser.id !== userId) {
+          return res.status(409).json({ error: "Email is already in use" });
+        }
+
+        updateData.email = email;
+      }
+
+      if (birthday !== undefined) {
+        const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+        if (!dateRegex.test(birthday)) {
+          return res.status(400).json({
+            error: "Birthday must be in YYYY-MM-DD format",
+          });
+        }
+
+        const birthdayDate = new Date(birthday);
+        if (isNaN(birthdayDate.getTime())) {
+          return res.status(400).json({ error: "Invalid birthday date" });
+        }
+
+        updateData.birthday = birthdayDate;
+      }
+
+      if (req.file) {
+        const existingUser = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { avatarUrl: true },
+        });
+
+        if (existingUser?.avatarUrl) {
+          const oldAvatarPath = path.join(__dirname, existingUser.avatarUrl);
+          if (fs.existsSync(oldAvatarPath)) {
+            fs.unlinkSync(oldAvatarPath);
+          }
+        }
+
+        updateData.avatarUrl = `/uploads/avatars/${req.file.filename}`;
+      }
+
+      const updatedUser = await prisma.user.update({
+        where: { id: userId },
+        data: updateData,
+      });
+
+      return res.status(200).json({
+        id: updatedUser.id,
+        utorid: updatedUser.utorid,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        birthday: updatedUser.birthday,
+        role: updatedUser.role,
+        points: updatedUser.points,
+        createdAt: updatedUser.createdAt,
+        lastLogin: updatedUser.lastLogin,
+        verified: updatedUser.verified,
+        avatarUrl: updatedUser.avatarUrl,
+      });
+    } catch (error) {
+      console.error("Error updating user profile:", error);
+
+      if (req.file) {
+        const filePath = path.join(uploadsDir, req.file.filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      }
+
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.patch(
+  "/users/me/password",
+  jwtMiddleware,
+  requireRole("regular"),
+  async (req, res) => {
+    try {
+      const userId = req.user?.id || req.auth?.id;
+
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { old, new: newPassword } = req.body;
+
+      if (!old || !newPassword) {
+        return res.status(400).json({
+          error: "Both old and new passwords are required",
+        });
+      }
+
+      const passwordRegex =
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/;
+
+      if (!passwordRegex.test(newPassword)) {
+        return res.status(400).json({
+          error:
+            "New password must be 8-20 characters with at least one uppercase, one lowercase, one number, and one special character",
+        });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, password: true },
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (!user.password) {
+        return res.status(400).json({
+          error: "No password set for this account",
+        });
+      }
+
+      const isPasswordValid = await bcrypt.compare(old, user.password);
+
+      if (!isPasswordValid) {
+        return res.status(403).json({
+          error: "Current password is incorrect",
+        });
+      }
+
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: { password: hashedPassword },
+      });
+
+      return res.status(200).json({ message: "Password updated successfully" });
+    } catch (error) {
+      console.error("Error updating password:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.post(
+  "/transactions",
+  jwtMiddleware,
+  requireRole("cashier"),
+  async (req, res) => {
+    try {
+      const { utorid, type, spent, amount, relatedId, promotionIds, remark } =
+        req.body;
+      const createdByUtorid = req.user?.utorid || req.auth?.utorid;
+      const createdById = req.user?.id || req.auth?.id;
+
+      if (!utorid || !type) {
+        return res.status(400).json({
+          error: "utorid and type are required",
+        });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { utorid },
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const creator = await prisma.user.findUnique({
+        where: { id: createdById },
+        select: { suspicious: true, role: true },
+      });
+
+      if (type === "purchase") {
+        if (spent === undefined || spent === null) {
+          return res.status(400).json({
+            error: "spent is required for purchase transactions",
+          });
+        }
+
+        if (typeof spent !== "number" || spent <= 0) {
+          return res.status(400).json({
+            error: "spent must be a positive number",
+          });
+        }
+
+        let earnedPoints = Math.round(spent * 4);
+
+        const appliedPromotionIds = [];
+        if (
+          promotionIds &&
+          Array.isArray(promotionIds) &&
+          promotionIds.length > 0
+        ) {
+          for (const promotionId of promotionIds) {
+            const promotion = await prisma.promotion.findUnique({
+              where: { id: promotionId },
+            });
+
+            if (!promotion) {
+              return res.status(400).json({
+                error: `Promotion with ID ${promotionId} does not exist`,
+              });
+            }
+
+            if (
+              promotion.minSpending === null &&
+              promotion.rate === null &&
+              promotion.points !== null
+            ) {
+              const alreadyUsed = await prisma.userPromotion.findUnique({
+                where: {
+                  userId_promotionId: {
+                    userId: user.id,
+                    promotionId: promotionId,
+                  },
+                },
+              });
+
+              if (alreadyUsed) {
+                return res.status(400).json({
+                  error: `Promotion ${promotionId} has already been used`,
+                });
+              }
+
+              earnedPoints += promotion.points;
+              appliedPromotionIds.push(promotionId);
+
+              await prisma.userPromotion.create({
+                data: {
+                  userId: user.id,
+                  promotionId: promotionId,
+                },
+              });
+            } else if (
+              promotion.minSpending !== null &&
+              promotion.rate !== null
+            ) {
+              if (spent >= promotion.minSpending) {
+                earnedPoints += Math.round(spent * promotion.rate);
+                appliedPromotionIds.push(promotionId);
+              } else {
+                return res.status(400).json({
+                  error: `Minimum spending of ${promotion.minSpending} not met for promotion ${promotionId}`,
+                });
+              }
+            }
+          }
+        }
+        const transaction = await prisma.transaction.create({
+          data: {
+            userId: user.id,
+            utorid: user.utorid,
+            type: "purchase",
+            amount: earnedPoints,
+            spent: spent,
+            promotionIds:
+              appliedPromotionIds.length > 0
+                ? JSON.stringify(appliedPromotionIds)
+                : null,
+            suspicious: creator?.suspicious || false,
+            remark: remark || "",
+            createdBy: createdByUtorid,
+          },
+        });
+        if (!creator?.suspicious) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              points: {
+                increment: earnedPoints,
+              },
+            },
+          });
+        }
+
+        return res.status(201).json({
+          id: transaction.id,
+          utorid: transaction.utorid,
+          type: transaction.type,
+          spent: transaction.spent,
+          earned: transaction.amount,
+          remark: transaction.remark,
+          promotionIds: appliedPromotionIds,
+          createdBy: transaction.createdBy,
+        });
+      } else if (type === "adjustment") {
+        if (!["manager", "superuser"].includes(creator?.role || "")) {
+          return res.status(403).json({
+            error: "Manager or higher clearance required for adjustments",
+          });
+        }
+
+        if (amount === undefined || amount === null) {
+          return res.status(400).json({
+            error: "amount is required for adjustment transactions",
+          });
+        }
+
+        if (typeof amount !== "number") {
+          return res.status(400).json({
+            error: "amount must be a number",
+          });
+        }
+
+        if (!relatedId) {
+          return res.status(400).json({
+            error: "relatedId is required for adjustment transactions",
+          });
+        }
+
+        const relatedTransaction = await prisma.transaction.findUnique({
+          where: { id: relatedId },
+        });
+
+        if (!relatedTransaction) {
+          return res.status(400).json({
+            error: "Related transaction does not exist",
+          });
+        }
+
+        const transaction = await prisma.transaction.create({
+          data: {
+            userId: user.id,
+            utorid: user.utorid,
+            type: "adjustment",
+            amount: amount,
+            relatedId: relatedId,
+            promotionIds:
+              promotionIds && promotionIds.length > 0
+                ? JSON.stringify(promotionIds)
+                : null,
+            remark: remark || "",
+            createdBy: createdByUtorid,
+          },
+        });
+
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            points: {
+              increment: amount,
+            },
+          },
+        });
+
+        return res.status(201).json({
+          id: transaction.id,
+          utorid: transaction.utorid,
+          amount: transaction.amount,
+          type: transaction.type,
+          relatedId: transaction.relatedId,
+          remark: transaction.remark,
+          promotionIds: promotionIds || [],
+          createdBy: transaction.createdBy,
+        });
+      } else {
+        return res.status(400).json({
+          error: "Invalid transaction type",
+        });
+      }
+    } catch (error) {
+      console.error("Error creating transaction:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.get(
+  "/transactions",
+  jwtMiddleware,
+  requireRole("manager"),
+  async (req, res) => {
+    try {
+      const {
+        name,
+        createdBy,
+        suspicious,
+        promotionId,
+        type,
+        relatedId,
+        amount,
+        operator,
+        page = 1,
+        limit = 10,
+      } = req.query;
+
+      const where = {};
+
+      if (name) {
+        const users = await prisma.user.findMany({
+          where: {
+            OR: [{ utorid: { contains: name } }, { name: { contains: name } }],
+          },
+          select: { utorid: true },
+        });
+
+        if (users.length > 0) {
+          where.utorid = { in: users.map((u) => u.utorid) };
+        } else {
+          return res.status(200).json({ count: 0, results: [] });
+        }
+      }
+
+      if (createdBy) {
+        where.createdBy = { contains: createdBy };
+      }
+
+      if (suspicious !== undefined) {
+        where.suspicious = suspicious === "true" || suspicious === true;
+      }
+
+      if (promotionId) {
+        const promotionIdNum = parseInt(promotionId, 10);
+        if (!isNaN(promotionIdNum)) {
+          where.promotionIds = { contains: promotionIdNum.toString() };
+        }
+      }
+
+      if (type) {
+        where.type = type;
+      }
+
+      if (relatedId !== undefined) {
+        const relatedIdNum = parseInt(relatedId, 10);
+        if (!isNaN(relatedIdNum)) {
+          where.relatedId = relatedIdNum;
+        }
+      }
+
+      if (amount !== undefined && operator) {
+        const amountNum = parseInt(amount, 10);
+        if (!isNaN(amountNum)) {
+          if (operator === "gte") {
+            where.amount = { gte: amountNum };
+          } else if (operator === "lte") {
+            where.amount = { lte: amountNum };
+          }
+        }
+      }
+
+      const pageNum = parseInt(page, 10) || 1;
+      const limitNum = parseInt(limit, 10) || 10;
+      const skip = (pageNum - 1) * limitNum;
+
+      const count = await prisma.transaction.count({ where });
+      const transactions = await prisma.transaction.findMany({
+        where,
+        skip,
+        take: limitNum,
+        orderBy: { id: "desc" },
+      });
+
+      const results = transactions.map((tx) => {
+        const result = {
+          id: tx.id,
+          utorid: tx.utorid,
+          amount: tx.amount,
+          type: tx.type,
+          promotionIds: tx.promotionIds ? JSON.parse(tx.promotionIds) : [],
+          remark: tx.remark || "",
+          createdBy: tx.createdBy,
+        };
+
+        if (tx.spent !== null) result.spent = tx.spent;
+        if (tx.redeemed !== null) result.redeemed = tx.redeemed;
+        if (tx.relatedId !== null) result.relatedId = tx.relatedId;
+        if (tx.type === "purchase" || tx.type === "adjustment") {
+          result.suspicious = tx.suspicious;
+        }
+
+        return result;
+      });
+
+      return res.status(200).json({ count, results });
+    } catch (error) {
+      console.error("Error fetching transactions:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.get(
+  "/transactions/:transactionId",
+  jwtMiddleware,
+  requireRole("manager"),
+  async (req, res) => {
+    try {
+      const { transactionId } = req.params;
+      const transactionIdNum = parseInt(transactionId, 10);
+
+      if (isNaN(transactionIdNum)) {
+        return res.status(400).json({ error: "Invalid transaction ID" });
+      }
+
+      const transaction = await prisma.transaction.findUnique({
+        where: { id: transactionIdNum },
+      });
+
+      if (!transaction) {
+        return res.status(404).json({ error: "Transaction not found" });
+      }
+
+      const result = {
+        id: transaction.id,
+        utorid: transaction.utorid,
+        type: transaction.type,
+        amount: transaction.amount,
+        promotionIds: transaction.promotionIds
+          ? JSON.parse(transaction.promotionIds)
+          : [],
+        remark: transaction.remark || "",
+        createdBy: transaction.createdBy,
+      };
+
+      if (transaction.spent !== null) result.spent = transaction.spent;
+      if (transaction.redeemed !== null) result.redeemed = transaction.redeemed;
+      if (transaction.relatedId !== null)
+        result.relatedId = transaction.relatedId;
+      if (
+        transaction.type === "purchase" ||
+        transaction.type === "adjustment"
+      ) {
+        result.suspicious = transaction.suspicious;
+      }
+
+      return res.status(200).json(result);
+    } catch (error) {
+      console.error("Error fetching transaction:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.patch(
+  "/transactions/:transactionId/suspicious",
+  jwtMiddleware,
+  requireRole("manager"),
+  async (req, res) => {
+    try {
+      const { transactionId } = req.params;
+      const { suspicious } = req.body;
+      const transactionIdNum = parseInt(transactionId, 10);
+
+      if (isNaN(transactionIdNum)) {
+        return res.status(400).json({ error: "Invalid transaction ID" });
+      }
+
+      if (suspicious === undefined || typeof suspicious !== "boolean") {
+        return res.status(400).json({
+          error: "suspicious field is required and must be a boolean",
+        });
+      }
+
+      const transaction = await prisma.transaction.findUnique({
+        where: { id: transactionIdNum },
+      });
+
+      if (!transaction) {
+        return res.status(404).json({ error: "Transaction not found" });
+      }
+
+      if (transaction.suspicious === suspicious) {
+        const result = {
+          id: transaction.id,
+          utorid: transaction.utorid,
+          type: transaction.type,
+          amount: transaction.amount,
+          promotionIds: transaction.promotionIds
+            ? JSON.parse(transaction.promotionIds)
+            : [],
+          suspicious: transaction.suspicious,
+          remark: transaction.remark || "",
+          createdBy: transaction.createdBy,
+        };
+
+        if (transaction.spent !== null) result.spent = transaction.spent;
+        if (transaction.redeemed !== null)
+          result.redeemed = transaction.redeemed;
+        if (transaction.relatedId !== null)
+          result.relatedId = transaction.relatedId;
+
+        return res.status(200).json(result);
+      }
+
+      let pointsAdjustment = 0;
+
+      if (suspicious && !transaction.suspicious) {
+        pointsAdjustment = -transaction.amount;
+      } else if (!suspicious && transaction.suspicious) {
+        pointsAdjustment = transaction.amount;
+      }
+
+      const updatedTransaction = await prisma.transaction.update({
+        where: { id: transactionIdNum },
+        data: { suspicious },
+      });
+
+      if (pointsAdjustment !== 0) {
+        await prisma.user.update({
+          where: { id: transaction.userId },
+          data: {
+            points: {
+              increment: pointsAdjustment,
+            },
+          },
+        });
+      }
+
+      const result = {
+        id: updatedTransaction.id,
+        utorid: updatedTransaction.utorid,
+        type: updatedTransaction.type,
+        amount: updatedTransaction.amount,
+        promotionIds: updatedTransaction.promotionIds
+          ? JSON.parse(updatedTransaction.promotionIds)
+          : [],
+        suspicious: updatedTransaction.suspicious,
+        remark: updatedTransaction.remark || "",
+        createdBy: updatedTransaction.createdBy,
+      };
+
+      if (updatedTransaction.spent !== null)
+        result.spent = updatedTransaction.spent;
+      if (updatedTransaction.redeemed !== null)
+        result.redeemed = updatedTransaction.redeemed;
+      if (updatedTransaction.relatedId !== null)
+        result.relatedId = updatedTransaction.relatedId;
+
+      return res.status(200).json(result);
+    } catch (error) {
+      console.error("Error updating transaction suspicious flag:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.patch(
+  "/transactions/:transactionId/processed",
+  jwtMiddleware,
+  requireRole("cashier"),
+  async (req, res) => {
+    try {
+      const { transactionId } = req.params;
+      const { processed } = req.body;
+      const transactionIdNum = parseInt(transactionId, 10);
+      const cashierUtorid = req.user?.utorid || req.auth?.utorid;
+      const cashierId = req.user?.id || req.auth?.id;
+
+      if (isNaN(transactionIdNum)) {
+        return res.status(400).json({ error: "Invalid transaction ID" });
+      }
+
+      if (processed !== true) {
+        return res.status(400).json({
+          error: "processed field must be true",
+        });
+      }
+
+      const transaction = await prisma.transaction.findUnique({
+        where: { id: transactionIdNum },
+      });
+
+      if (!transaction) {
+        return res.status(404).json({ error: "Transaction not found" });
+      }
+
+      if (transaction.type !== "redemption") {
+        return res.status(400).json({
+          error: "Transaction is not a redemption",
+        });
+      }
+
+      if (transaction.relatedId !== null) {
+        return res.status(400).json({
+          error: "Transaction has already been processed",
+        });
+      }
+
+      const updatedTransaction = await prisma.transaction.update({
+        where: { id: transactionIdNum },
+        data: {
+          relatedId: cashierId,
+          redeemed: Math.abs(transaction.amount),
+        },
+      });
+
+      await prisma.user.update({
+        where: { id: transaction.userId },
+        data: {
+          points: {
+            decrement: Math.abs(transaction.amount),
+          },
+        },
+      });
+
+      return res.status(200).json({
+        id: updatedTransaction.id,
+        utorid: updatedTransaction.utorid,
+        type: updatedTransaction.type,
+        processedBy: cashierUtorid,
+        redeemed: updatedTransaction.redeemed,
+        remark: updatedTransaction.remark || "",
+        createdBy: updatedTransaction.createdBy,
+      });
+    } catch (error) {
+      console.error("Error processing redemption:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.post(
+  "/users/:userId/transactions",
+  jwtMiddleware,
+  requireRole("regular"),
+  async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { type, amount, remark } = req.body;
+      const senderUtorid = req.user?.utorid || req.auth?.utorid;
+      const senderId = req.user?.id || req.auth?.id;
+      const recipientId = parseInt(userId, 10);
+
+      if (isNaN(recipientId)) {
+        return res.status(400).json({ error: "Invalid user ID" });
+      }
+
+      if (type !== "transfer") {
+        return res.status(400).json({
+          error: "type must be 'transfer'",
+        });
+      }
+
+      if (
+        amount === undefined ||
+        typeof amount !== "number" ||
+        amount <= 0 ||
+        !Number.isInteger(amount)
+      ) {
+        return res.status(400).json({
+          error: "amount must be a positive integer",
+        });
+      }
+
+      const sender = await prisma.user.findUnique({
+        where: { id: senderId },
+      });
+
+      if (!sender) {
+        return res.status(404).json({ error: "Sender not found" });
+      }
+
+      if (!sender.verified) {
+        return res.status(403).json({
+          error: "Sender must be verified",
+        });
+      }
+
+      if (sender.points < amount) {
+        return res.status(400).json({
+          error: "Insufficient points",
+        });
+      }
+
+      const recipient = await prisma.user.findUnique({
+        where: { id: recipientId },
+      });
+
+      if (!recipient) {
+        return res.status(404).json({ error: "Recipient not found" });
+      }
+
+      const senderTransaction = await prisma.transaction.create({
+        data: {
+          userId: senderId,
+          utorid: sender.utorid,
+          type: "transfer",
+          amount: -amount,
+          relatedId: recipientId,
+          remark: remark || "",
+          createdBy: senderUtorid,
+        },
+      });
+
+      await prisma.transaction.create({
+        data: {
+          userId: recipientId,
+          utorid: recipient.utorid,
+          type: "transfer",
+          amount: amount,
+          relatedId: senderId,
+          remark: remark || "",
+          createdBy: senderUtorid,
+        },
+      });
+
+      await prisma.user.update({
+        where: { id: senderId },
+        data: {
+          points: {
+            decrement: amount,
+          },
+        },
+      });
+
+      await prisma.user.update({
+        where: { id: recipientId },
+        data: {
+          points: {
+            increment: amount,
+          },
+        },
+      });
+
+      return res.status(201).json({
+        id: senderTransaction.id,
+        sender: sender.utorid,
+        recipient: recipient.utorid,
+        type: senderTransaction.type,
+        sent: amount,
+        remark: senderTransaction.remark,
+        createdBy: senderTransaction.createdBy,
+      });
+    } catch (error) {
+      console.error("Error creating transfer transaction:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.post(
+  "/users/me/transactions",
+  jwtMiddleware,
+  requireRole("regular"),
+  async (req, res) => {
+    try {
+      const { type, amount, remark } = req.body;
+      const userUtorid = req.user?.utorid || req.auth?.utorid;
+      const userId = req.user?.id || req.auth?.id;
+
+      if (type !== "redemption") {
+        return res.status(400).json({
+          error: "type must be 'redemption'",
+        });
+      }
+
+      if (
+        amount === undefined ||
+        typeof amount !== "number" ||
+        amount <= 0 ||
+        !Number.isInteger(amount)
+      ) {
+        return res.status(400).json({
+          error: "amount must be a positive integer",
+        });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (!user.verified) {
+        return res.status(403).json({
+          error: "User must be verified",
+        });
+      }
+
+      if (user.points < amount) {
+        return res.status(400).json({
+          error: "Insufficient points",
+        });
+      }
+
+      const transaction = await prisma.transaction.create({
+        data: {
+          userId: userId,
+          utorid: user.utorid,
+          type: "redemption",
+          amount: -amount,
+          relatedId: null,
+          remark: remark || "",
+          createdBy: userUtorid,
+        },
+      });
+
+      return res.status(201).json({
+        id: transaction.id,
+        utorid: transaction.utorid,
+        type: transaction.type,
+        processedBy: null,
+        amount: Math.abs(transaction.amount),
+        remark: transaction.remark,
+        createdBy: transaction.createdBy,
+      });
+    } catch (error) {
+      console.error("Error creating redemption transaction:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.get(
+  "/users/me/transactions",
+  jwtMiddleware,
+  requireRole("regular"),
+  async (req, res) => {
+    try {
+      const userId = req.user?.id || req.auth?.id;
+      const {
+        type,
+        relatedId,
+        promotionId,
+        amount,
+        operator,
+        page = 1,
+        limit = 10,
+      } = req.query;
+
+      const where = {
+        userId: userId,
+      };
+
+      if (type) {
+        where.type = type;
+      }
+
+      if (relatedId !== undefined) {
+        const relatedIdNum = parseInt(relatedId, 10);
+        if (!isNaN(relatedIdNum)) {
+          where.relatedId = relatedIdNum;
+        }
+      }
+
+      if (promotionId) {
+        const promotionIdNum = parseInt(promotionId, 10);
+        if (!isNaN(promotionIdNum)) {
+          where.promotionIds = { contains: promotionIdNum.toString() };
+        }
+      }
+
+      if (amount !== undefined && operator) {
+        const amountNum = parseInt(amount, 10);
+        if (!isNaN(amountNum)) {
+          if (operator === "gte") {
+            where.amount = { gte: amountNum };
+          } else if (operator === "lte") {
+            where.amount = { lte: amountNum };
+          }
+        }
+      }
+
+      const pageNum = parseInt(page, 10) || 1;
+      const limitNum = parseInt(limit, 10) || 10;
+      const skip = (pageNum - 1) * limitNum;
+
+      const count = await prisma.transaction.count({ where });
+      const transactions = await prisma.transaction.findMany({
+        where,
+        skip,
+        take: limitNum,
+        orderBy: { id: "desc" },
+      });
+
+      const results = transactions.map((tx) => {
+        const result = {
+          id: tx.id,
+          type: tx.type,
+          amount: tx.amount,
+          promotionIds: tx.promotionIds ? JSON.parse(tx.promotionIds) : [],
+          remark: tx.remark || "",
+          createdBy: tx.createdBy,
+        };
+
+        if (tx.spent !== null) result.spent = tx.spent;
+        if (tx.redeemed !== null) result.redeemed = tx.redeemed;
+        if (tx.relatedId !== null) result.relatedId = tx.relatedId;
+
+        return result;
+      });
+
+      return res.status(200).json({ count, results });
+    } catch (error) {
+      console.error("Error fetching user transactions:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.post("/events", jwtMiddleware, requireRole("manager"), async (req, res) => {
+  try {
+    const {
+      name,
+      description,
+      location,
+      startTime,
+      endTime,
+      capacity,
+      points,
+    } = req.body;
+
+    if (
+      !name ||
+      !description ||
+      !location ||
+      !startTime ||
+      !endTime ||
+      points === undefined
+    ) {
+      return res.status(400).json({
+        error:
+          "name, description, location, startTime, endTime, and points are required",
+      });
+    }
+
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const now = new Date();
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({
+        error: "Invalid date format",
+      });
+    }
+
+    if (start < now) {
+      return res.status(400).json({
+        error: "Start time cannot be in the past",
+      });
+    }
+
+    if (end <= start) {
+      return res.status(400).json({
+        error: "End time must be after start time",
+      });
+    }
+
+    if (capacity !== null && capacity !== undefined) {
+      if (typeof capacity !== "number" || capacity <= 0) {
+        return res.status(400).json({
+          error: "Capacity must be a positive number or null",
+        });
+      }
+    }
+
+    if (
+      typeof points !== "number" ||
+      points <= 0 ||
+      !Number.isInteger(points)
+    ) {
+      return res.status(400).json({
+        error: "Points must be a positive integer",
+      });
+    }
+
+    const event = await prisma.event.create({
+      data: {
+        name,
+        description,
+        location,
+        startTime: start,
+        endTime: end,
+        capacity: capacity === null ? null : capacity,
+        points,
+        pointsRemain: points,
+        pointsAwarded: 0,
+        published: false,
+      },
+      include: {
+        organizers: true,
+        guests: true,
+      },
+    });
+
+    return res.status(201).json({
+      id: event.id,
+      name: event.name,
+      description: event.description,
+      location: event.location,
+      startTime: event.startTime,
+      endTime: event.endTime,
+      capacity: event.capacity,
+      pointsRemain: event.pointsRemain,
+      pointsAwarded: event.pointsAwarded,
+      published: event.published,
+      organizers: [],
+      guests: [],
+    });
+  } catch (error) {
+    console.error("Error creating event:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/events", jwtMiddleware, requireRole("regular"), async (req, res) => {
+  try {
+    const {
+      name,
+      location,
+      started,
+      ended,
+      showFull,
+      published,
+      page = 1,
+      limit = 10,
+    } = req.query;
+
+    const userRole = req.user?.role || req.auth?.role;
+    const isManager = ["manager", "superuser"].includes(userRole);
+
+    if (started !== undefined && ended !== undefined) {
+      return res.status(400).json({
+        error: "Cannot specify both started and ended",
+      });
+    }
+
+    const where = {};
+    const now = new Date();
+
+    if (!isManager) {
+      where.published = true;
+    } else if (published !== undefined) {
+      where.published = published === "true" || published === true;
+    }
+
+    if (name) {
+      where.name = { contains: name };
+    }
+
+    if (location) {
+      where.location = { contains: location };
+    }
+
+    if (started !== undefined) {
+      const hasStarted = started === "true" || started === true;
+      if (hasStarted) {
+        where.startTime = { lte: now };
+      } else {
+        where.startTime = { gt: now };
+      }
+    }
+
+    if (ended !== undefined) {
+      const hasEnded = ended === "true" || ended === true;
+      if (hasEnded) {
+        where.endTime = { lte: now };
+      } else {
+        where.endTime = { gt: now };
+      }
+    }
+
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 10;
+    const skip = (pageNum - 1) * limitNum;
+
+    let events = await prisma.event.findMany({
+      where,
+      include: {
+        guests: true,
+      },
+      orderBy: { id: "desc" },
+    });
+
+    const shouldShowFull = showFull === "true" || showFull === true;
+    if (!shouldShowFull) {
+      events = events.filter(
+        (event) =>
+          event.capacity === null || event.guests.length < event.capacity
+      );
+    }
+
+    const count = events.length;
+    const paginatedEvents = events.slice(skip, skip + limitNum);
+
+    const results = paginatedEvents.map((event) => {
+      const result = {
+        id: event.id,
+        name: event.name,
+        location: event.location,
+        startTime: event.startTime,
+        endTime: event.endTime,
+        capacity: event.capacity,
+        numGuests: event.guests.length,
+      };
+
+      if (isManager) {
+        result.pointsRemain = event.pointsRemain;
+        result.pointsAwarded = event.pointsAwarded;
+        result.published = event.published;
+      }
+
+      return result;
+    });
+
+    return res.status(200).json({ count, results });
+  } catch (error) {
+    console.error("Error fetching events:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get(
+  "/events/:eventId",
+  jwtMiddleware,
+  requireRole("regular"),
+  async (req, res) => {
+    try {
+      const { eventId } = req.params;
+      const eventIdNum = parseInt(eventId, 10);
+      const userId = req.user?.id || req.auth?.id;
+      const userRole = req.user?.role || req.auth?.role;
+
+      if (isNaN(eventIdNum)) {
+        return res.status(400).json({ error: "Invalid event ID" });
+      }
+
+      const event = await prisma.event.findUnique({
+        where: { id: eventIdNum },
+        include: {
+          organizers: true,
+          guests: true,
+        },
+      });
+
+      if (!event) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+
+      const isOrganizer = event.organizers.some((org) => org.userId === userId);
+      const isManager = ["manager", "superuser"].includes(userRole);
+      const hasFullAccess = isManager || isOrganizer;
+
+      if (!hasFullAccess && !event.published) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+
+      const organizerDetails = await prisma.user.findMany({
+        where: {
+          id: { in: event.organizers.map((org) => org.userId) },
+        },
+        select: {
+          id: true,
+          utorid: true,
+          name: true,
+        },
+      });
+
+      if (hasFullAccess) {
+        return res.status(200).json({
+          id: event.id,
+          name: event.name,
+          description: event.description,
+          location: event.location,
+          startTime: event.startTime,
+          endTime: event.endTime,
+          capacity: event.capacity,
+          pointsRemain: event.pointsRemain,
+          pointsAwarded: event.pointsAwarded,
+          published: event.published,
+          organizers: organizerDetails,
+          guests: event.guests.map((g) => g.userId),
+        });
+      } else {
+        return res.status(200).json({
+          id: event.id,
+          name: event.name,
+          description: event.description,
+          location: event.location,
+          startTime: event.startTime,
+          endTime: event.endTime,
+          capacity: event.capacity,
+          organizers: organizerDetails,
+          numGuests: event.guests.length,
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching event:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.patch(
+  "/events/:eventId",
+  jwtMiddleware,
+  requireRole("regular"),
+  async (req, res) => {
+    try {
+      const { eventId } = req.params;
+      const eventIdNum = parseInt(eventId, 10);
+      const userId = req.user?.id || req.auth?.id;
+      const userRole = req.user?.role || req.auth?.role;
+
+      if (isNaN(eventIdNum)) {
+        return res.status(400).json({ error: "Invalid event ID" });
+      }
+
+      const {
+        name,
+        description,
+        location,
+        startTime,
+        endTime,
+        capacity,
+        points,
+        published,
+      } = req.body;
+
+      const event = await prisma.event.findUnique({
+        where: { id: eventIdNum },
+        include: {
+          organizers: true,
+          guests: true,
+        },
+      });
+
+      if (!event) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+
+      const isOrganizer = event.organizers.some((org) => org.userId === userId);
+      const isManager = ["manager", "superuser"].includes(userRole);
+
+      if (!isManager && !isOrganizer) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      if ((points !== undefined || published !== undefined) && !isManager) {
+        return res.status(403).json({
+          error: "Only managers can set points or published status",
+        });
+      }
+
+      const updateData = {};
+      const now = new Date();
+
+      if (name !== undefined) {
+        if (event.startTime < now) {
+          return res.status(400).json({
+            error: "Cannot update name after event has started",
+          });
+        }
+        updateData.name = name;
+      }
+
+      if (description !== undefined) {
+        if (event.startTime < now) {
+          return res.status(400).json({
+            error: "Cannot update description after event has started",
+          });
+        }
+        updateData.description = description;
+      }
+
+      if (location !== undefined) {
+        if (event.startTime < now) {
+          return res.status(400).json({
+            error: "Cannot update location after event has started",
+          });
+        }
+        updateData.location = location;
+      }
+
+      if (startTime !== undefined) {
+        if (event.startTime < now) {
+          return res.status(400).json({
+            error: "Cannot update start time after event has started",
+          });
+        }
+
+        const newStartTime = new Date(startTime);
+        if (isNaN(newStartTime.getTime())) {
+          return res.status(400).json({ error: "Invalid start time format" });
+        }
+
+        if (newStartTime < now) {
+          return res.status(400).json({
+            error: "Start time cannot be in the past",
+          });
+        }
+
+        const newEndTime = endTime ? new Date(endTime) : event.endTime;
+        if (newEndTime <= newStartTime) {
+          return res.status(400).json({
+            error: "End time must be after start time",
+          });
+        }
+
+        updateData.startTime = newStartTime;
+      }
+
+      if (endTime !== undefined) {
+        if (event.endTime < now) {
+          return res.status(400).json({
+            error: "Cannot update end time after event has ended",
+          });
+        }
+
+        const newEndTime = new Date(endTime);
+        if (isNaN(newEndTime.getTime())) {
+          return res.status(400).json({ error: "Invalid end time format" });
+        }
+
+        const newStartTime = startTime ? new Date(startTime) : event.startTime;
+        if (newEndTime <= newStartTime) {
+          return res.status(400).json({
+            error: "End time must be after start time",
+          });
+        }
+
+        updateData.endTime = newEndTime;
+      }
+
+      if (capacity !== undefined) {
+        if (event.startTime < now) {
+          return res.status(400).json({
+            error: "Cannot update capacity after event has started",
+          });
+        }
+
+        if (capacity !== null) {
+          if (typeof capacity !== "number" || capacity <= 0) {
+            return res.status(400).json({
+              error: "Capacity must be a positive number or null",
+            });
+          }
+
+          if (event.guests.length > capacity) {
+            return res.status(400).json({
+              error: "New capacity is less than current number of guests",
+            });
+          }
+        }
+
+        updateData.capacity = capacity;
+      }
+
+      if (points !== undefined) {
+        if (
+          typeof points !== "number" ||
+          points <= 0 ||
+          !Number.isInteger(points)
+        ) {
+          return res.status(400).json({
+            error: "Points must be a positive integer",
+          });
+        }
+
+        const pointsDiff = points - event.points;
+        const newPointsRemain = event.pointsRemain + pointsDiff;
+
+        if (newPointsRemain < 0) {
+          return res.status(400).json({
+            error: "Cannot reduce points below already awarded amount",
+          });
+        }
+
+        updateData.points = points;
+        updateData.pointsRemain = newPointsRemain;
+      }
+
+      if (published !== undefined) {
+        if (published !== true) {
+          return res.status(400).json({
+            error: "Published can only be set to true",
+          });
+        }
+        updateData.published = true;
+      }
+
+      const updatedEvent = await prisma.event.update({
+        where: { id: eventIdNum },
+        data: updateData,
+      });
+
+      const response = {
+        id: updatedEvent.id,
+        name: updatedEvent.name,
+        location: updatedEvent.location,
+      };
+
+      if (description !== undefined)
+        response.description = updatedEvent.description;
+      if (startTime !== undefined) response.startTime = updatedEvent.startTime;
+      if (endTime !== undefined) response.endTime = updatedEvent.endTime;
+      if (capacity !== undefined) response.capacity = updatedEvent.capacity;
+      if (points !== undefined) {
+        response.points = updatedEvent.points;
+        response.pointsRemain = updatedEvent.pointsRemain;
+      }
+      if (published !== undefined) response.published = updatedEvent.published;
+
+      return res.status(200).json(response);
+    } catch (error) {
+      console.error("Error updating event:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.delete(
+  "/events/:eventId",
+  jwtMiddleware,
+  requireRole("manager"),
+  async (req, res) => {
+    try {
+      const { eventId } = req.params;
+      const eventIdNum = parseInt(eventId, 10);
+
+      if (isNaN(eventIdNum)) {
+        return res.status(400).json({ error: "Invalid event ID" });
+      }
+
+      const event = await prisma.event.findUnique({
+        where: { id: eventIdNum },
+      });
+
+      if (!event) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+
+      if (event.published) {
+        return res.status(400).json({
+          error: "Cannot delete published event",
+        });
+      }
+
+      await prisma.event.delete({
+        where: { id: eventIdNum },
+      });
+
+      return res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting event:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.post(
+  "/events/:eventId/organizers",
+  jwtMiddleware,
+  requireRole("manager"),
+  async (req, res) => {
+    try {
+      const { eventId } = req.params;
+      const { utorid } = req.body;
+      const eventIdNum = parseInt(eventId, 10);
+
+      if (isNaN(eventIdNum)) {
+        return res.status(400).json({ error: "Invalid event ID" });
+      }
+
+      if (!utorid) {
+        return res.status(400).json({ error: "utorid is required" });
+      }
+
+      const event = await prisma.event.findUnique({
+        where: { id: eventIdNum },
+        include: {
+          organizers: true,
+          guests: true,
+        },
+      });
+
+      if (!event) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+
+      if (new Date() > event.endTime) {
+        return res.status(410).json({ error: "Event has ended" });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { utorid },
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const isGuest = event.guests.some((g) => g.userId === user.id);
+      if (isGuest) {
+        return res.status(400).json({
+          error: "User is registered as a guest",
+        });
+      }
+
+      const isOrganizer = event.organizers.some((o) => o.userId === user.id);
+      if (isOrganizer) {
+        return res.status(400).json({
+          error: "User is already an organizer",
+        });
+      }
+
+      await prisma.eventOrganizer.create({
+        data: {
+          eventId: eventIdNum,
+          userId: user.id,
+        },
+      });
+
+      const organizers = await prisma.user.findMany({
+        where: {
+          id: {
+            in: [...event.organizers.map((o) => o.userId), user.id],
+          },
+        },
+        select: {
+          id: true,
+          utorid: true,
+          name: true,
+        },
+      });
+
+      return res.status(201).json({
+        id: event.id,
+        name: event.name,
+        location: event.location,
+        organizers,
+      });
+    } catch (error) {
+      console.error("Error adding organizer:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.delete(
+  "/events/:eventId/organizers/:userId",
+  jwtMiddleware,
+  requireRole("manager"),
+  async (req, res) => {
+    try {
+      const { eventId, userId } = req.params;
+      const eventIdNum = parseInt(eventId, 10);
+      const userIdNum = parseInt(userId, 10);
+
+      if (isNaN(eventIdNum) || isNaN(userIdNum)) {
+        return res.status(400).json({ error: "Invalid ID" });
+      }
+
+      const organizer = await prisma.eventOrganizer.findUnique({
+        where: {
+          eventId_userId: {
+            eventId: eventIdNum,
+            userId: userIdNum,
+          },
+        },
+      });
+
+      if (!organizer) {
+        return res.status(404).json({ error: "Organizer not found" });
+      }
+
+      await prisma.eventOrganizer.delete({
+        where: {
+          eventId_userId: {
+            eventId: eventIdNum,
+            userId: userIdNum,
+          },
+        },
+      });
+
+      return res.status(204).send();
+    } catch (error) {
+      console.error("Error removing organizer:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.post(
+  "/events/:eventId/guests",
+  jwtMiddleware,
+  requireRole("regular"),
+  async (req, res) => {
+    try {
+      const { eventId } = req.params;
+      const { utorid } = req.body;
+      const eventIdNum = parseInt(eventId, 10);
+      const currentUserId = req.user?.id || req.auth?.id;
+      const userRole = req.user?.role || req.auth?.role;
+
+      if (isNaN(eventIdNum)) {
+        return res.status(400).json({ error: "Invalid event ID" });
+      }
+
+      if (!utorid) {
+        return res.status(400).json({ error: "utorid is required" });
+      }
+
+      const event = await prisma.event.findUnique({
+        where: { id: eventIdNum },
+        include: {
+          organizers: true,
+          guests: true,
+        },
+      });
+
+      if (!event) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+
+      const isOrganizer = event.organizers.some(
+        (org) => org.userId === currentUserId
+      );
+      const isManager = ["manager", "superuser"].includes(userRole);
+
+      if (!isManager && !isOrganizer) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      if (!isManager && !isOrganizer && !event.published) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+
+      if (new Date() > event.endTime) {
+        return res.status(410).json({ error: "Event has ended" });
+      }
+
+      if (event.capacity !== null && event.guests.length >= event.capacity) {
+        return res.status(410).json({ error: "Event is full" });
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { utorid },
+      });
+
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const isUserOrganizer = event.organizers.some(
+        (o) => o.userId === user.id
+      );
+      if (isUserOrganizer) {
+        return res.status(400).json({
+          error: "User is registered as an organizer",
+        });
+      }
+
+      const isGuest = event.guests.some((g) => g.userId === user.id);
+      if (isGuest) {
+        return res.status(400).json({
+          error: "User is already a guest",
+        });
+      }
+
+      await prisma.eventGuest.create({
+        data: {
+          eventId: eventIdNum,
+          userId: user.id,
+        },
+      });
+
+      return res.status(201).json({
+        id: event.id,
+        name: event.name,
+        location: event.location,
+        guestAdded: {
+          id: user.id,
+          utorid: user.utorid,
+          name: user.name,
+        },
+        numGuests: event.guests.length + 1,
+      });
+    } catch (error) {
+      console.error("Error adding guest:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.delete(
+  "/events/:eventId/guests/:userId",
+  jwtMiddleware,
+  requireRole("manager"),
+  async (req, res) => {
+    try {
+      const { eventId, userId } = req.params;
+      const eventIdNum = parseInt(eventId, 10);
+      const userIdNum = parseInt(userId, 10);
+
+      if (isNaN(eventIdNum) || isNaN(userIdNum)) {
+        return res.status(400).json({ error: "Invalid ID" });
+      }
+
+      const guest = await prisma.eventGuest.findUnique({
+        where: {
+          eventId_userId: {
+            eventId: eventIdNum,
+            userId: userIdNum,
+          },
+        },
+      });
+
+      if (!guest) {
+        return res.status(404).json({ error: "Guest not found" });
+      }
+
+      await prisma.eventGuest.delete({
+        where: {
+          eventId_userId: {
+            eventId: eventIdNum,
+            userId: userIdNum,
+          },
+        },
+      });
+
+      return res.status(204).send();
+    } catch (error) {
+      console.error("Error removing guest:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.post(
+  "/events/:eventId/guests/me",
+  jwtMiddleware,
+  requireRole("regular"),
+  async (req, res) => {
+    try {
+      const { eventId } = req.params;
+      const eventIdNum = parseInt(eventId, 10);
+      const userId = req.user?.id || req.auth?.id;
+      const userUtorid = req.user?.utorid || req.auth?.utorid;
+
+      if (isNaN(eventIdNum)) {
+        return res.status(400).json({ error: "Invalid event ID" });
+      }
+
+      const event = await prisma.event.findUnique({
+        where: { id: eventIdNum },
+        include: {
+          organizers: true,
+          guests: true,
+        },
+      });
+
+      if (!event) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+
+      if (!event.published) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+
+      if (new Date() > event.endTime) {
+        return res.status(410).json({ error: "Event has ended" });
+      }
+
+      if (event.capacity !== null && event.guests.length >= event.capacity) {
+        return res.status(410).json({ error: "Event is full" });
+      }
+
+      const isGuest = event.guests.some((g) => g.userId === userId);
+      if (isGuest) {
+        return res.status(400).json({
+          error: "User is already on the guest list",
+        });
+      }
+
+      await prisma.eventGuest.create({
+        data: {
+          eventId: eventIdNum,
+          userId: userId,
+        },
+      });
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          utorid: true,
+          name: true,
+        },
+      });
+
+      return res.status(201).json({
+        id: event.id,
+        name: event.name,
+        location: event.location,
+        guestAdded: user,
+        numGuests: event.guests.length + 1,
+      });
+    } catch (error) {
+      console.error("Error adding self as guest:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.delete(
+  "/events/:eventId/guests/me",
+  jwtMiddleware,
+  requireRole("regular"),
+  async (req, res) => {
+    try {
+      const { eventId } = req.params;
+      const eventIdNum = parseInt(eventId, 10);
+      const userId = req.user?.id || req.auth?.id;
+
+      if (isNaN(eventIdNum)) {
+        return res.status(400).json({ error: "Invalid event ID" });
+      }
+
+      const event = await prisma.event.findUnique({
+        where: { id: eventIdNum },
+      });
+
+      if (!event) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+
+      if (new Date() > event.endTime) {
+        return res.status(410).json({ error: "Event has ended" });
+      }
+
+      const guest = await prisma.eventGuest.findUnique({
+        where: {
+          eventId_userId: {
+            eventId: eventIdNum,
+            userId: userId,
+          },
+        },
+      });
+
+      if (!guest) {
+        return res
+          .status(404)
+          .json({ error: "User did not RSVP to this event" });
+      }
+
+      await prisma.eventGuest.delete({
+        where: {
+          eventId_userId: {
+            eventId: eventIdNum,
+            userId: userId,
+          },
+        },
+      });
+
+      return res.status(204).send();
+    } catch (error) {
+      console.error("Error removing self as guest:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.post(
+  "/events/:eventId/transactions",
+  jwtMiddleware,
+  requireRole("regular"),
+  async (req, res) => {
+    try {
+      const { eventId } = req.params;
+      const { type, utorid, amount, remark } = req.body;
+      const eventIdNum = parseInt(eventId, 10);
+      const currentUserId = req.user?.id || req.auth?.id;
+      const currentUserUtorid = req.user?.utorid || req.auth?.utorid;
+      const userRole = req.user?.role || req.auth?.role;
+
+      if (isNaN(eventIdNum)) {
+        return res.status(400).json({ error: "Invalid event ID" });
+      }
+
+      if (type !== "event") {
+        return res.status(400).json({ error: "type must be 'event'" });
+      }
+
+      if (
+        amount === undefined ||
+        typeof amount !== "number" ||
+        amount <= 0 ||
+        !Number.isInteger(amount)
+      ) {
+        return res.status(400).json({
+          error: "amount must be a positive integer",
+        });
+      }
+
+      const event = await prisma.event.findUnique({
+        where: { id: eventIdNum },
+        include: {
+          organizers: true,
+          guests: true,
+        },
+      });
+
+      if (!event) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+
+      const isOrganizer = event.organizers.some(
+        (org) => org.userId === currentUserId
+      );
+      const isManager = ["manager", "superuser"].includes(userRole);
+
+      if (!isManager && !isOrganizer) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      if (utorid) {
+        const user = await prisma.user.findUnique({
+          where: { utorid },
+        });
+
+        if (!user) {
+          return res.status(404).json({ error: "User not found" });
+        }
+
+        const isGuest = event.guests.some((g) => g.userId === user.id);
+        if (!isGuest) {
+          return res.status(400).json({
+            error: "User is not on the guest list",
+          });
+        }
+
+        if (event.pointsRemain < amount) {
+          return res.status(400).json({
+            error: "Insufficient points remaining",
+          });
+        }
+
+        const transaction = await prisma.transaction.create({
+          data: {
+            userId: user.id,
+            utorid: user.utorid,
+            type: "event",
+            amount: amount,
+            relatedId: eventIdNum,
+            remark: remark || "",
+            createdBy: currentUserUtorid,
+          },
+        });
+
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            points: {
+              increment: amount,
+            },
+          },
+        });
+
+        await prisma.event.update({
+          where: { id: eventIdNum },
+          data: {
+            pointsRemain: {
+              decrement: amount,
+            },
+            pointsAwarded: {
+              increment: amount,
+            },
+          },
+        });
+
+        return res.status(201).json({
+          id: transaction.id,
+          recipient: user.utorid,
+          awarded: amount,
+          type: transaction.type,
+          relatedId: transaction.relatedId,
+          remark: transaction.remark,
+          createdBy: transaction.createdBy,
+        });
+      } else {
+        const totalAmount = amount * event.guests.length;
+
+        if (event.pointsRemain < totalAmount) {
+          return res.status(400).json({
+            error: "Insufficient points remaining",
+          });
+        }
+
+        const guestUsers = await prisma.user.findMany({
+          where: {
+            id: { in: event.guests.map((g) => g.userId) },
+          },
+        });
+
+        const transactions = [];
+        for (const user of guestUsers) {
+          const transaction = await prisma.transaction.create({
+            data: {
+              userId: user.id,
+              utorid: user.utorid,
+              type: "event",
+              amount: amount,
+              relatedId: eventIdNum,
+              remark: remark || "",
+              createdBy: currentUserUtorid,
+            },
+          });
+
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              points: {
+                increment: amount,
+              },
+            },
+          });
+
+          transactions.push({
+            id: transaction.id,
+            recipient: user.utorid,
+            awarded: amount,
+            type: transaction.type,
+            relatedId: transaction.relatedId,
+            remark: transaction.remark,
+            createdBy: transaction.createdBy,
+          });
+        }
+
+        await prisma.event.update({
+          where: { id: eventIdNum },
+          data: {
+            pointsRemain: {
+              decrement: totalAmount,
+            },
+            pointsAwarded: {
+              increment: totalAmount,
+            },
+          },
+        });
+
+        return res.status(201).json(transactions);
+      }
+    } catch (error) {
+      console.error("Error creating event transaction:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.post(
+  "/promotions",
+  jwtMiddleware,
+  requireRole("manager"),
+  async (req, res) => {
+    try {
+      const {
+        name,
+        description,
+        type,
+        startTime,
+        endTime,
+        minSpending,
+        rate,
+        points,
+      } = req.body;
+
+      if (!name || !description || !type || !startTime || !endTime) {
+        return res.status(400).json({
+          error: "name, description, type, startTime, and endTime are required",
+        });
+      }
+
+      if (type !== "automatic" && type !== "onetime") {
+        return res.status(400).json({
+          error: "type must be 'automatic' or 'onetime'",
+        });
+      }
+
+      const start = new Date(startTime);
+      const end = new Date(endTime);
+      const now = new Date();
+
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return res.status(400).json({
+          error: "Invalid date format",
+        });
+      }
+
+      if (start < now) {
+        return res.status(400).json({
+          error: "Start time cannot be in the past",
+        });
+      }
+
+      if (end <= start) {
+        return res.status(400).json({
+          error: "End time must be after start time",
+        });
+      }
+
+      if (minSpending !== undefined && minSpending !== null) {
+        if (typeof minSpending !== "number" || minSpending <= 0) {
+          return res.status(400).json({
+            error: "minSpending must be a positive number",
+          });
+        }
+      }
+
+      if (rate !== undefined && rate !== null) {
+        if (typeof rate !== "number" || rate <= 0) {
+          return res.status(400).json({
+            error: "rate must be a positive number",
+          });
+        }
+      }
+
+      if (points !== undefined && points !== null) {
+        if (
+          typeof points !== "number" ||
+          points <= 0 ||
+          !Number.isInteger(points)
+        ) {
+          return res.status(400).json({
+            error: "points must be a positive integer",
+          });
+        }
+      }
+
+      const promotion = await prisma.promotion.create({
+        data: {
+          name,
+          description,
+          type,
+          startTime: start,
+          endTime: end,
+          minSpending: minSpending ?? null,
+          rate: rate ?? null,
+          points: points ?? null,
+        },
+      });
+
+      return res.status(201).json({
+        id: promotion.id,
+        name: promotion.name,
+        description: promotion.description,
+        type: promotion.type,
+        startTime: promotion.startTime,
+        endTime: promotion.endTime,
+        minSpending: promotion.minSpending,
+        rate: promotion.rate,
+        points: promotion.points,
+      });
+    } catch (error) {
+      console.error("Error creating promotion:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.get(
+  "/promotions",
+  jwtMiddleware,
+  requireRole("regular"),
+  async (req, res) => {
+    try {
+      const { name, type, started, ended, page = 1, limit = 10 } = req.query;
+
+      const userId = req.user?.id || req.auth?.id;
+      const userRole = req.user?.role || req.auth?.role;
+      const isManager = ["manager", "superuser"].includes(userRole);
+
+      if (started !== undefined && ended !== undefined) {
+        return res.status(400).json({
+          error: "Cannot specify both started and ended",
+        });
+      }
+
+      const where = {};
+      const now = new Date();
+
+      if (!isManager) {
+        where.startTime = { lte: now };
+        where.endTime = { gt: now };
+
+        const usedPromotions = await prisma.userPromotion.findMany({
+          where: { userId },
+          select: { promotionId: true },
+        });
+
+        if (usedPromotions.length > 0) {
+          where.NOT = {
+            id: { in: usedPromotions.map((up) => up.promotionId) },
+          };
+        }
+      } else {
+        if (started !== undefined) {
+          const hasStarted = started === "true" || started === true;
+          if (hasStarted) {
+            where.startTime = { lte: now };
+          } else {
+            where.startTime = { gt: now };
+          }
+        }
+
+        if (ended !== undefined) {
+          const hasEnded = ended === "true" || ended === true;
+          if (hasEnded) {
+            where.endTime = { lte: now };
+          } else {
+            where.endTime = { gt: now };
+          }
+        }
+      }
+
+      if (name) {
+        where.name = { contains: name };
+      }
+
+      if (type) {
+        where.type = type;
+      }
+
+      const pageNum = parseInt(page, 10) || 1;
+      const limitNum = parseInt(limit, 10) || 10;
+      const skip = (pageNum - 1) * limitNum;
+
+      const count = await prisma.promotion.count({ where });
+      const promotions = await prisma.promotion.findMany({
+        where,
+        skip,
+        take: limitNum,
+        orderBy: { id: "desc" },
+      });
+
+      const results = promotions.map((promo) => {
+        const result = {
+          id: promo.id,
+          name: promo.name,
+          type: promo.type,
+          endTime: promo.endTime,
+          minSpending: promo.minSpending,
+          rate: promo.rate,
+          points: promo.points,
+        };
+
+        if (isManager) {
+          result.startTime = promo.startTime;
+        }
+
+        return result;
+      });
+
+      return res.status(200).json({ count, results });
+    } catch (error) {
+      console.error("Error fetching promotions:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.get(
+  "/promotions/:promotionId",
+  jwtMiddleware,
+  requireRole("regular"),
+  async (req, res) => {
+    try {
+      const { promotionId } = req.params;
+      const promotionIdNum = parseInt(promotionId, 10);
+      const userRole = req.user?.role || req.auth?.role;
+      const isManager = ["manager", "superuser"].includes(userRole);
+
+      if (isNaN(promotionIdNum)) {
+        return res.status(400).json({ error: "Invalid promotion ID" });
+      }
+
+      const promotion = await prisma.promotion.findUnique({
+        where: { id: promotionIdNum },
+      });
+
+      if (!promotion) {
+        return res.status(404).json({ error: "Promotion not found" });
+      }
+
+      const now = new Date();
+      if (!isManager) {
+        if (promotion.startTime > now || promotion.endTime <= now) {
+          return res.status(404).json({ error: "Promotion not found" });
+        }
+      }
+
+      return res.status(200).json({
+        id: promotion.id,
+        name: promotion.name,
+        description: promotion.description,
+        type: promotion.type,
+        endTime: promotion.endTime,
+        minSpending: promotion.minSpending,
+        rate: promotion.rate,
+        points: promotion.points,
+      });
+    } catch (error) {
+      console.error("Error fetching promotion:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.patch(
+  "/promotions/:promotionId",
+  jwtMiddleware,
+  requireRole("manager"),
+  async (req, res) => {
+    try {
+      const { promotionId } = req.params;
+      const promotionIdNum = parseInt(promotionId, 10);
+
+      if (isNaN(promotionIdNum)) {
+        return res.status(400).json({ error: "Invalid promotion ID" });
+      }
+
+      const {
+        name,
+        description,
+        type,
+        startTime,
+        endTime,
+        minSpending,
+        rate,
+        points,
+      } = req.body;
+
+      const promotion = await prisma.promotion.findUnique({
+        where: { id: promotionIdNum },
+      });
+
+      if (!promotion) {
+        return res.status(404).json({ error: "Promotion not found" });
+      }
+
+      const updateData = {};
+      const now = new Date();
+
+      const hasStarted = promotion.startTime <= now;
+      const hasEnded = promotion.endTime <= now;
+
+      if (name !== undefined) {
+        if (hasStarted) {
+          return res.status(400).json({
+            error: "Cannot update name after promotion has started",
+          });
+        }
+        updateData.name = name;
+      }
+
+      if (description !== undefined) {
+        if (hasStarted) {
+          return res.status(400).json({
+            error: "Cannot update description after promotion has started",
+          });
+        }
+        updateData.description = description;
+      }
+
+      if (type !== undefined) {
+        if (hasStarted) {
+          return res.status(400).json({
+            error: "Cannot update type after promotion has started",
+          });
+        }
+        if (type !== "automatic" && type !== "onetime") {
+          return res.status(400).json({
+            error: "type must be 'automatic' or 'onetime'",
+          });
+        }
+        updateData.type = type;
+      }
+
+      if (startTime !== undefined) {
+        if (hasStarted) {
+          return res.status(400).json({
+            error: "Cannot update start time after promotion has started",
+          });
+        }
+
+        const newStartTime = new Date(startTime);
+        if (isNaN(newStartTime.getTime())) {
+          return res.status(400).json({ error: "Invalid start time format" });
+        }
+
+        if (newStartTime < now) {
+          return res.status(400).json({
+            error: "Start time cannot be in the past",
+          });
+        }
+
+        const newEndTime = endTime ? new Date(endTime) : promotion.endTime;
+        if (newEndTime <= newStartTime) {
+          return res.status(400).json({
+            error: "End time must be after start time",
+          });
+        }
+
+        updateData.startTime = newStartTime;
+      }
+
+      if (endTime !== undefined) {
+        if (hasEnded) {
+          return res.status(400).json({
+            error: "Cannot update end time after promotion has ended",
+          });
+        }
+
+        const newEndTime = new Date(endTime);
+        if (isNaN(newEndTime.getTime())) {
+          return res.status(400).json({ error: "Invalid end time format" });
+        }
+
+        if (newEndTime < now) {
+          return res.status(400).json({
+            error: "End time cannot be in the past",
+          });
+        }
+
+        const newStartTime = startTime
+          ? new Date(startTime)
+          : promotion.startTime;
+        if (newEndTime <= newStartTime) {
+          return res.status(400).json({
+            error: "End time must be after start time",
+          });
+        }
+
+        updateData.endTime = newEndTime;
+      }
+
+      if (minSpending !== undefined) {
+        if (hasStarted) {
+          return res.status(400).json({
+            error: "Cannot update minSpending after promotion has started",
+          });
+        }
+        if (minSpending !== null) {
+          if (typeof minSpending !== "number" || minSpending <= 0) {
+            return res.status(400).json({
+              error: "minSpending must be a positive number",
+            });
+          }
+        }
+        updateData.minSpending = minSpending;
+      }
+
+      if (rate !== undefined) {
+        if (hasStarted) {
+          return res.status(400).json({
+            error: "Cannot update rate after promotion has started",
+          });
+        }
+        if (rate !== null) {
+          if (typeof rate !== "number" || rate <= 0) {
+            return res.status(400).json({
+              error: "rate must be a positive number",
+            });
+          }
+        }
+        updateData.rate = rate;
+      }
+
+      if (points !== undefined) {
+        if (hasStarted) {
+          return res.status(400).json({
+            error: "Cannot update points after promotion has started",
+          });
+        }
+        if (points !== null) {
+          if (
+            typeof points !== "number" ||
+            points <= 0 ||
+            !Number.isInteger(points)
+          ) {
+            return res.status(400).json({
+              error: "points must be a positive integer",
+            });
+          }
+        }
+        updateData.points = points;
+      }
+
+      const updatedPromotion = await prisma.promotion.update({
+        where: { id: promotionIdNum },
+        data: updateData,
+      });
+
+      const response = {
+        id: updatedPromotion.id,
+        name: updatedPromotion.name,
+        type: updatedPromotion.type,
+      };
+
+      if (description !== undefined)
+        response.description = updatedPromotion.description;
+      if (startTime !== undefined)
+        response.startTime = updatedPromotion.startTime;
+      if (endTime !== undefined) response.endTime = updatedPromotion.endTime;
+      if (minSpending !== undefined)
+        response.minSpending = updatedPromotion.minSpending;
+      if (rate !== undefined) response.rate = updatedPromotion.rate;
+      if (points !== undefined) response.points = updatedPromotion.points;
+
+      return res.status(200).json(response);
+    } catch (error) {
+      console.error("Error updating promotion:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.delete(
+  "/promotions/:promotionId",
+  jwtMiddleware,
+  requireRole("manager"),
+  async (req, res) => {
+    try {
+      const { promotionId } = req.params;
+      const promotionIdNum = parseInt(promotionId, 10);
+
+      if (isNaN(promotionIdNum)) {
+        return res.status(400).json({ error: "Invalid promotion ID" });
+      }
+
+      const promotion = await prisma.promotion.findUnique({
+        where: { id: promotionIdNum },
+      });
+
+      if (!promotion) {
+        return res.status(404).json({ error: "Promotion not found" });
+      }
+
+      const now = new Date();
+      if (promotion.startTime <= now) {
+        return res.status(403).json({
+          error: "Cannot delete promotion that has already started",
+        });
+      }
+
+      await prisma.promotion.delete({
+        where: { id: promotionIdNum },
+      });
+
+      return res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting promotion:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+);
+
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+app.use((err, req, res, next) => {
+  if (err.name === "UnauthorizedError") {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  next(err);
+});
+
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
+const server = app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
+
+server.on("error", (err) => {
+  console.error(`cannot start server: ${err.message}`);
+  process.exit(1);
+});

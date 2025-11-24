@@ -1,0 +1,122 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum RoleType {
+  regular
+  cashier
+  manager
+  superuser
+}
+
+enum TransactionType {
+  purchase
+  redemption
+  adjustment
+  event
+  transfer
+}
+
+enum PromotionType {
+  automatic
+  one_time
+}
+
+model User {
+  id             Int             @id @default(autoincrement())
+  utorid         String          @unique
+  name           String
+  email          String          @unique
+  password       String?
+  birthday       DateTime?
+  role           RoleType        @default(regular)
+  points         Int             @default(0)
+  verified       Boolean         @default(false)
+  suspicious     Boolean         @default(false)
+  resetToken     String?         @unique
+  expiresAt      DateTime?
+  createdAt      DateTime        @default(now())
+  lastLogin      DateTime?
+  avatarUrl      String?
+  userPromotions UserPromotion[]
+}
+
+model Promotion {
+  id             Int             @id @default(autoincrement())
+  name           String
+  description    String
+  type           PromotionType
+  startTime      DateTime
+  endTime        DateTime
+  minSpending    Float?
+  rate           Float?
+  points         Int?
+  userPromotions UserPromotion[]
+}
+
+model UserPromotion {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  promotionId Int
+  usedAt      DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id])
+  promotion   Promotion @relation(fields: [promotionId], references: [id])
+
+  @@unique([userId, promotionId])
+}
+
+model Transaction {
+  id            Int             @id @default(autoincrement())
+  userId        Int
+  utorid        String
+  type          TransactionType
+  amount        Int
+  spent         Float?
+  redeemed      Int?
+  relatedId     Int?
+  promotionIds  String?         // JSON array as string
+  suspicious    Boolean         @default(false)
+  remark        String?
+  createdBy     String
+  createdAt     DateTime        @default(now())
+}
+
+model Event {
+  id             Int              @id @default(autoincrement())
+  name           String
+  description    String
+  location       String
+  startTime      DateTime
+  endTime        DateTime
+  capacity       Int?
+  points         Int
+  pointsRemain   Int
+  pointsAwarded  Int              @default(0)
+  published      Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  organizers     EventOrganizer[]
+  guests         EventGuest[]
+}
+
+model EventOrganizer {
+  id      Int   @id @default(autoincrement())
+  eventId Int
+  userId  Int
+  event   Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+}
+
+model EventGuest {
+  id      Int   @id @default(autoincrement())
+  eventId Int
+  userId  Int
+  event   Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+}
