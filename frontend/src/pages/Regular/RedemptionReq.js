@@ -10,6 +10,7 @@ const RedemptionReq = () => {
   const [selectedPromo, setSelectedPromo] = useState(null);
   const [transaction, setTransaction] = useState(null);
   const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     const loadPromos = async () => {
@@ -25,7 +26,11 @@ const RedemptionReq = () => {
   }, []);
 
   const handleRedeem = async () => {
-    if (!selectedPromo) return;
+    if (!selectedPromo || isLoading) return;
+
+    setIsLoading(true); // ⬅ Start loading
+    setError("");
+    setTransaction(null);
 
     try {
       const data = await api.post("/users/me/transactions", {
@@ -34,6 +39,8 @@ const RedemptionReq = () => {
       setTransaction(data);
     } catch (err) {
       setError(err.message || "Failed to redeem promotion.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -78,17 +85,18 @@ const RedemptionReq = () => {
             ))}
           </select>
 
+          {/* ✅ Updated redeem button */}
           <button
             onClick={handleRedeem}
-            disabled={!selectedPromo}
+            disabled={!selectedPromo || isLoading}
             className={`px-4 py-2 rounded-lg text-white font-semibold 
               ${
-                selectedPromo
-                  ? "bg-blue-600 hover:bg-blue-700"
-                  : "bg-gray-400 cursor-not-allowed"
+                !selectedPromo || isLoading
+                  ? "bg-gray-400 cursor-not-allowed"
+                  : "bg-blue-600 hover:bg-blue-700"
               }`}
           >
-            Redeem
+            {isLoading ? "Processing..." : "Redeem"}
           </button>
         </div>
 

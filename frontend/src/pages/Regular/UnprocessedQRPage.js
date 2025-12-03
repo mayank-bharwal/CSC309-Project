@@ -6,7 +6,7 @@ import Loading from "../../components/common/Loading";
 import { QRCodeSVG } from "qrcode.react";
 import api from "../../utils/api";
 
-export default function UnprocessedRedemptionPage() {
+export default function UnprocessedQRPage() {
   const [tx, setTx] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -19,7 +19,7 @@ export default function UnprocessedRedemptionPage() {
         });
         const txs = data.results;
 
-        const unprocessed = txs.filter(t => t.type === "redemption" && t.redeemed == null);
+        const unprocessed = txs.filter(t => t.type === "redemption" && t.redeemed === null);
 
         if (unprocessed.length === 0) {
           setError("No unprocessed redemption requests found.");

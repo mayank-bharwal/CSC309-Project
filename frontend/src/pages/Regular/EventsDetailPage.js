@@ -9,7 +9,7 @@ import api from "../../utils/api";
 import { QRCodeSVG } from "qrcode.react";
 import { useAuth } from "../../context/AuthContext";
 
-const EventDetailPage = () => {
+const EventsDetailPage = () => {
   const { eventId } = useParams();
   const { user } = useAuth();
 
@@ -118,4 +118,4 @@ const EventDetailPage = () => {
   );
 };
 
-export default EventDetailPage;
+export default EventsDetailPage;

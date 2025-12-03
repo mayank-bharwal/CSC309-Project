@@ -11,7 +11,7 @@ import Loading from "../../components/common/Loading";
 import Alert from "../../components/common/Alert";
 import api from "../../utils/api";
 
-const ListTransactionsPage = () => {
+const PastTransactionPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // API DATA
@@ -212,4 +212,4 @@ const ListTransactionsPage = () => {
   );
 };
 
-export default ListTransactionsPage;
+export default PastTransactionPage;

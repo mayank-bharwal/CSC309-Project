@@ -22,6 +22,10 @@ const TransferPoints = () => {
       });
 
       setStatus("success");
+      setTimeout(() => {
+      setStatus(null);
+      }, 3000);
+
       setRecipientId("");
       setAmount("");
       setRemark("");
@@ -48,7 +52,8 @@ const TransferPoints = () => {
               Recipient User ID
             </label>
             <input
-              type="number"
+              type="text"
+              pattern="^[0-9]+$"
               className="w-full rounded-lg border border-gray-300 px-4 py-2"
               value={recipientId}
               onChange={(e) => setRecipientId(e.target.value)}
@@ -86,8 +91,9 @@ const TransferPoints = () => {
           <button
             type="submit"
             className="w-full bg-blue-600 text-white py-2 rounded-lg font-semibold hover:bg-blue-700 transition"
+            disabled={status === "loading"}
           >
-            Send Points
+            {status === "loading" ? "Processing..." : "Send Points"}
           </button>
 
           {/* Status messages */}
