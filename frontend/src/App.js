@@ -23,6 +23,18 @@ import EventsListPage from './pages/manager/EventsListPage';
 import EventCreatePage from './pages/manager/EventCreatePage';
 import EventEditPage from './pages/manager/EventEditPage';
 
+
+// Regular Pages
+import PointsPage from './pages/Regular/PointsPage';
+import QRCodePage from './pages/Regular/QRCodePage';
+import TransferPoints from './pages/Regular/TransferPoints';
+import RedemptionReq from './pages/Regular/RedemptionReq';
+import ListPromotionsPage from './pages/Regular/ListPromotionsPage';
+import ListEventsPage from "./pages/Regular/ListEventsPage";
+import EventDetailPage from "./pages/Regular/EventsDetailPage";
+import ListTransactionsPage from './pages/Regular/PastTransactionPage';
+import UnprocessedRedemptionPage from './pages/Regular/UnprocessedQRPage';
+
 // Protected Route for Manager
 const ManagerRoute = ({ children }) => {
   const { user, loading, isManager } = useAuth();
@@ -46,6 +58,25 @@ const ManagerRoute = ({ children }) => {
   return children;
 };
 
+const ProtectedRoute = ({ children }) => {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="w-8 h-8 border-2 border-gray-200 border-t-brand-500 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
+};
+
+
 function App() {
   return (
     <HelmetProvider>
@@ -57,8 +88,13 @@ function App() {
 
             {/* Dashboard Layout */}
             <Route element={<AppLayout />}>
-              <Route index element={<Dashboard />} />
-
+              {/* Dashboard accessible to all authenticated users */}
+              <Route index element={
+                <ProtectedRoute>
+                  <Dashboard />
+                </ProtectedRoute>
+              } />
+              
               {/* Manager Routes */}
               <Route
                 path="/manager/users"
@@ -140,9 +176,47 @@ function App() {
                   </ManagerRoute>
                 }
               />
+              
+            {/* ---- Regular authenticated user pages ---- */}
+              <Route path="/regular/points" element={
+                <ProtectedRoute><PointsPage /></ProtectedRoute>
+              } />
+
+              <Route path="/regular/qr" element={
+                <ProtectedRoute><QRCodePage /></ProtectedRoute>
+              } />
+
+              <Route path="/regular/transfer" element={
+                <ProtectedRoute><TransferPoints /></ProtectedRoute>
+              } />
+
+              <Route path="/regular/redemption" element={
+                <ProtectedRoute><RedemptionReq /></ProtectedRoute>
+              } />
+
+              <Route path="/regular/promotions" element={
+                <ProtectedRoute><ListPromotionsPage /></ProtectedRoute>
+              } />
+
+              <Route path="/regular/events" element={
+                <ProtectedRoute><ListEventsPage /></ProtectedRoute>
+              } />
+
+              <Route path="/regular/events/:eventId" element={
+                <ProtectedRoute><EventDetailPage /></ProtectedRoute>
+              } />
+
+              <Route path="/regular/transactions" element={
+                <ProtectedRoute><ListTransactionsPage /></ProtectedRoute>
+              } />
+
+              <Route path="/regular/unprocessed-redemption" element={
+                <ProtectedRoute><UnprocessedRedemptionPage /></ProtectedRoute>
+              } />
             </Route>
 
-            {/* Catch all - redirect to home */}
+            
+
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Router>
