@@ -81,7 +81,101 @@ const AppSidebar = () => {
           { name: 'Create Event', path: '/manager/events/create' },
         ],
       });
+      return items;
     }
+    items.push({
+      name: "Points",
+      path: "/regular/points",
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8a4 4 0 00-4 4v5h8v-5a4 4 0 00-4-4z" />
+        </svg>
+      ),
+    });
+
+    items.push({
+      name: "QR Code",
+      path: "/regular/qr",
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4h16v16H4z" />
+        </svg>
+      ),
+    });
+
+    items.push({
+      name: "Transfer Points",
+      path: "/regular/transfer",
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 12h12M12 6v12" />
+        </svg>
+      ),
+    });
+
+    items.push({
+      name: "Redemption",
+      path: "/regular/redemption",
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-3-3v6" />
+        </svg>
+      ),
+    });
+
+    items.push({
+      name: "Promotions",
+      path: "/regular/promotions",
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 12h14M5 16h14" />
+        </svg>
+      ),
+    });
+    items.push({
+      name: "Events",
+      path: "/regular/events",
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+          />
+        </svg>
+      ),
+    
+    });
+
+    items.push({
+      name: "Transactions",
+      path: "/regular/transactions",
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            strokeWidth={2} 
+            d="M3 7h18M3 12h18M3 17h18" 
+          />
+        </svg>
+      ),
+    });
+    items.push({
+      name: "Pending Redemption",
+      path: "/regular/unprocessed-redemption",
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+          />
+        </svg>
+      ),
+    });
 
     return items;
   }, [isManager]);

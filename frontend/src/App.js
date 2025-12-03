@@ -23,6 +23,18 @@ import EventsListPage from './pages/manager/EventsListPage';
 import EventCreatePage from './pages/manager/EventCreatePage';
 import EventEditPage from './pages/manager/EventEditPage';
 
+
+// Regular Pages
+import PointsPage from './pages/Regular/PointsPage';
+import QRCodePage from './pages/Regular/QRCodePage';
+import TransferPoints from './pages/Regular/TransferPoints';
+import RedemptionReq from './pages/Regular/RedemptionReq';
+import ListPromotionsPage from './pages/Regular/ListPromotionsPage';
+import ListEventsPage from "./pages/Regular/ListEventsPage";
+import EventDetailPage from "./pages/Regular/EventsDetailPage";
+import ListTransactionsPage from './pages/Regular/PastTransactionPage';
+import UnprocessedRedemptionPage from './pages/Regular/UnprocessedQRPage';
+
 // Protected Route for Manager
 const ManagerRoute = ({ children }) => {
   const { user, loading, isManager } = useAuth();
@@ -140,9 +152,20 @@ function App() {
                   </ManagerRoute>
                 }
               />
+            {/* Catch all - redirect to home */}
+            <Route path="/regular/points" element={<PointsPage />} />
+            <Route path="/regular/qr" element={<QRCodePage />} />
+            <Route path="/regular/transfer" element={<TransferPoints />} />
+            <Route path="/regular/redemption" element={<RedemptionReq />} />
+            <Route path="/regular/promotions" element={<ListPromotionsPage />} />
+            <Route path="/regular/events" element={<ListEventsPage />} />
+            <Route path="/regular/events/:eventId" element={<EventDetailPage />} />
+            <Route path="/regular/transactions" element={<ListTransactionsPage />} />
+            <Route path="/regular/unprocessed-redemption" element={<UnprocessedRedemptionPage />} />
             </Route>
 
-            {/* Catch all - redirect to home */}
+            
+
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Router>
