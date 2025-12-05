@@ -7,6 +7,7 @@ import AppLayout from './components/layout/AppLayout';
 
 // Auth Pages
 import LoginPage from './pages/auth/LoginPage';
+import OAuthCallbackPage from './pages/auth/OAuthCallbackPage';
 
 // Dashboard
 import Dashboard from './pages/Dashboard';
@@ -85,6 +86,7 @@ function App() {
           <Routes>
             {/* Auth Routes */}
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/auth/callback" element={<OAuthCallbackPage />} />
 
             {/* Dashboard Layout */}
             <Route element={<AppLayout />}>

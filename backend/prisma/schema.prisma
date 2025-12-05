@@ -43,6 +43,9 @@ model User {
   createdAt      DateTime        @default(now())
   lastLogin      DateTime?
   avatarUrl      String?
+  auth0UserId    String?         @unique
+  oauthProvider  String?
+  oauthLinkedAt  DateTime?
   userPromotions UserPromotion[]
 }
 

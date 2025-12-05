@@ -21,6 +21,7 @@ const port = (() => {
 })();
 
 const express = require("express");
+const cors = require("cors");
 const { PrismaClient } = require("@prisma/client");
 const jwt = require("jsonwebtoken");
 const { expressjwt: ejwt } = require("express-jwt");
@@ -31,6 +32,7 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const axios = require("axios");
 
 const app = express();
 const prisma = new PrismaClient();
@@ -174,6 +176,12 @@ function checkChatRateLimit(userId) {
   chatRateLimiter.set(userId, userLimit);
   return true;
 }
+
+// Enable CORS for frontend
+app.use(cors({
+  origin: 'http://localhost:3001',
+  credentials: true
+}));
 
 app.use(express.json());
 
@@ -520,6 +528,137 @@ app.post("/auth/tokens", async (req, res) => {
   } catch (error) {
     console.error("Error authenticating user:", error);
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// OAuth Callback Handler
+app.post("/auth/oauth/callback", async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    if (!code) {
+      return res.status(400).json({ error: "Authorization code is required" });
+    }
+
+    // Exchange authorization code for tokens
+    const tokenResponse = await axios.post(
+      `https://${process.env.AUTH0_DOMAIN}/oauth/token`,
+      {
+        grant_type: "authorization_code",
+        client_id: process.env.AUTH0_CLIENT_ID,
+        client_secret: process.env.AUTH0_CLIENT_SECRET,
+        code: code,
+        redirect_uri: process.env.AUTH0_CALLBACK_URL,
+      },
+      {
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+
+    const { access_token } = tokenResponse.data;
+
+    // Get user info from Auth0
+    const userInfoResponse = await axios.get(
+      `https://${process.env.AUTH0_DOMAIN}/userinfo`,
+      {
+        headers: { Authorization: `Bearer ${access_token}` },
+      }
+    );
+
+    const auth0User = userInfoResponse.data;
+
+    // Extract Auth0 user details
+    const auth0UserId = auth0User.sub;
+    const email = auth0User.email;
+    const emailVerified = auth0User.email_verified;
+
+    // Determine provider from sub claim
+    const providerMatch = auth0UserId.split("|")[0];
+    const provider = providerMatch.replace("-oauth2", "").replace("auth0", "email");
+
+    if (!email) {
+      return res.status(400).json({
+        error: "Email not provided by OAuth provider"
+      });
+    }
+
+    // Check if user exists by auth0UserId (already linked)
+    let user = await prisma.user.findUnique({
+      where: { auth0UserId },
+    });
+
+    // If not found by auth0UserId, check by email
+    if (!user) {
+      user = await prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (!user) {
+        return res.status(404).json({
+          error: "Account not found. Please contact a cashier to create your account first.",
+        });
+      }
+
+      // Link Auth0 account to existing user
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          auth0UserId,
+          oauthProvider: provider,
+          oauthLinkedAt: new Date(),
+          verified: emailVerified || user.verified,
+          lastLogin: new Date(),
+        },
+      });
+    } else {
+      // User already linked, just update last login
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { lastLogin: new Date() },
+      });
+    }
+
+    // Generate JWT token (same as password login)
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        utorid: user.utorid,
+        role: user.role,
+      },
+      JWT_SECRET,
+      {
+        expiresIn: "7d",
+      }
+    );
+
+    return res.json({
+      token,
+      expiresAt,
+      user: {
+        id: user.id,
+        utorid: user.utorid,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        verified: user.verified,
+      },
+    });
+  } catch (error) {
+    console.error("OAuth callback error:", error.response?.data || error.message);
+
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      return res.status(401).json({
+        error: "OAuth authentication failed. Please try again."
+      });
+    }
+
+    return res.status(500).json({
+      error: "OAuth authentication failed",
+      details: error.message,
+    });
   }
 });
 
