@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
-require("dotenv").config();
+require("dotenv").config(); 
 
 const port = (() => {
   const args = process.argv;
@@ -21,6 +21,7 @@ const port = (() => {
 })();
 
 const express = require("express");
+const cors = require("cors");
 const { PrismaClient } = require("@prisma/client");
 const jwt = require("jsonwebtoken");
 const { expressjwt: ejwt } = require("express-jwt");
@@ -30,9 +31,14 @@ const bcrypt = require("bcrypt");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const axios = require("axios");
 
 const app = express();
 const prisma = new PrismaClient();
+
+// Initialize Gemini AI
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const uploadsDir = path.join(__dirname, "uploads", "avatars");
 if (!fs.existsSync(uploadsDir)) {
@@ -140,6 +146,57 @@ setInterval(() => {
   }
 }, 300000);
 
+// Chat rate limiting
+const chatRateLimiter = new Map();
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, data] of chatRateLimiter.entries()) {
+    if (now > data.resetAt) {
+      chatRateLimiter.delete(userId);
+    }
+  }
+}, 60000);
+
+function checkChatRateLimit(userId) {
+  const now = Date.now();
+  const limit = parseInt(process.env.CHATBOT_RATE_LIMIT_PER_MINUTE || '10');
+  const userLimit = chatRateLimiter.get(userId) || { count: 0, resetAt: now + 60000 };
+
+  if (now > userLimit.resetAt) {
+    chatRateLimiter.set(userId, { count: 1, resetAt: now + 60000 });
+    return true;
+  }
+
+  if (userLimit.count >= limit) {
+    return false;
+  }
+
+  userLimit.count++;
+  chatRateLimiter.set(userId, userLimit);
+  return true;
+}
+
+// Enable CORS for frontend
+const allowedOrigins = [
+  'http://localhost:3001', // Local development
+  process.env.FRONTEND_URL // Production (Vercel)
+].filter(Boolean); // Remove undefined values
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
+
 app.use(express.json());
 
 // app.use((req, res, next) => {
@@ -226,6 +283,204 @@ app.use(express.json());
 //   next();
 // });
 
+// Chatbot helper functions
+async function gatherUserContext(userId, userMessage) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      utorid: true,
+      name: true,
+      email: true,
+      role: true,
+      points: true,
+      verified: true,
+      createdAt: true,
+    },
+  });
+
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  const context = { user };
+  const messageLower = userMessage.toLowerCase();
+
+  // Conditionally fetch based on message content
+  if (messageLower.includes('transaction') || messageLower.includes('purchase') ||
+      messageLower.includes('spent') || messageLower.includes('history')) {
+    context.transactions = await prisma.transaction.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: {
+        id: true,
+        type: true,
+        amount: true,
+        spent: true,
+        remark: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  if (messageLower.includes('event')) {
+    const now = new Date();
+    const [upcomingEvents, userRegistrations] = await Promise.all([
+      prisma.event.findMany({
+        where: {
+          startTime: { gte: now },
+          published: true,
+        },
+        take: 5,
+        orderBy: { startTime: 'asc' },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          location: true,
+          startTime: true,
+          endTime: true,
+          capacity: true,
+          points: true,
+        },
+      }),
+      prisma.eventGuest.findMany({
+        where: { userId },
+        include: {
+          event: {
+            select: {
+              id: true,
+              name: true,
+              startTime: true,
+              points: true,
+            },
+          },
+        },
+      }),
+    ]);
+    context.upcomingEvents = upcomingEvents;
+    context.userRegistrations = userRegistrations;
+  }
+
+  if (messageLower.includes('promotion') || messageLower.includes('deal') ||
+      messageLower.includes('offer') || messageLower.includes('discount')) {
+    const now = new Date();
+    const [activePromotions, userPromotions] = await Promise.all([
+      prisma.promotion.findMany({
+        where: {
+          startTime: { lte: now },
+          endTime: { gte: now },
+        },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          type: true,
+          minSpending: true,
+          rate: true,
+          points: true,
+          startTime: true,
+          endTime: true,
+        },
+      }),
+      prisma.userPromotion.findMany({
+        where: { userId },
+        include: {
+          promotion: {
+            select: {
+              id: true,
+              name: true,
+              type: true,
+            },
+          },
+        },
+      }),
+    ]);
+    context.activePromotions = activePromotions;
+    context.userPromotions = userPromotions;
+  }
+
+  return context;
+}
+
+function buildSystemPrompt(userContext) {
+  const { user, transactions, upcomingEvents, userRegistrations, activePromotions, userPromotions } = userContext;
+
+  const roleInstructions = {
+    regular: "You can help this user view their points, transactions, and register for events.",
+    cashier: "This user can create transactions and view user information. You can help them with these tasks.",
+    manager: "This user has full access to manage users, transactions, promotions, and events. You can guide them through any administrative task.",
+    superuser: "This user has complete system access including user role management.",
+  };
+
+  let prompt = `You are an AI assistant for a university loyalty rewards program. Your role is to help users with their points balance, transactions, events, and promotions.
+
+IMPORTANT RULES:
+1. Only answer questions about the loyalty program (points, transactions, events, promotions, account info)
+2. If asked about unrelated topics, politely redirect to the loyalty program scope
+3. Never make up information - only use the provided user context
+4. Keep responses concise (under 100 words)
+5. Be friendly and professional
+6. If you don't have enough information to answer, ask the user to clarify or suggest they contact support
+
+USER CONTEXT:
+- Name: ${user.name}
+- UTorid: ${user.utorid}
+- Role: ${user.role}
+- Points Balance: ${user.points}
+- Account Status: ${user.verified ? "Verified" : "Unverified"}
+- Member Since: ${new Date(user.createdAt).toLocaleDateString()}
+`;
+
+  if (transactions && transactions.length > 0) {
+    prompt += `\n\nRECENT TRANSACTIONS (Last 10):`;
+    transactions.forEach(t => {
+      prompt += `\n- ${t.type}: ${t.amount >= 0 ? '+' : ''}${t.amount} points on ${new Date(t.createdAt).toLocaleDateString()}`;
+      if (t.spent) prompt += ` (spent $${t.spent})`;
+      if (t.remark) prompt += ` - ${t.remark}`;
+    });
+  }
+
+  if (upcomingEvents && upcomingEvents.length > 0) {
+    prompt += `\n\nUPCOMING EVENTS:`;
+    upcomingEvents.forEach(e => {
+      prompt += `\n- ${e.name} at ${e.location} on ${new Date(e.startTime).toLocaleString()} (${e.points} points reward)`;
+    });
+  }
+
+  if (userRegistrations && userRegistrations.length > 0) {
+    prompt += `\n\nUSER'S EVENT REGISTRATIONS:`;
+    userRegistrations.forEach(r => {
+      prompt += `\n- Registered for: ${r.event.name} on ${new Date(r.event.startTime).toLocaleDateString()}`;
+    });
+  }
+
+  if (activePromotions && activePromotions.length > 0) {
+    prompt += `\n\nACTIVE PROMOTIONS:`;
+    activePromotions.forEach(p => {
+      prompt += `\n- ${p.name}: ${p.description}`;
+      if (p.type === 'automatic' && p.minSpending) {
+        prompt += ` (${p.rate}x points on purchases $${p.minSpending}+)`;
+      } else if (p.type === 'one_time' && p.points) {
+        prompt += ` (${p.points} bonus points)`;
+      }
+    });
+  }
+
+  if (userPromotions && userPromotions.length > 0) {
+    prompt += `\n\nUSER'S REDEEMED PROMOTIONS:`;
+    userPromotions.forEach(up => {
+      prompt += `\n- Already redeemed: ${up.promotion.name}`;
+    });
+  }
+
+  prompt += `\n\nROLE-SPECIFIC CAPABILITIES:\n${roleInstructions[user.role]}`;
+  prompt += `\n\nAnswer the user's question based on this context. Do not reference "the context" in your response - speak naturally as if you have this information.`;
+
+  return prompt;
+}
+
 app.post("/auth/tokens", async (req, res) => {
   try {
     const { utorid, password } = req.body;
@@ -287,6 +542,143 @@ app.post("/auth/tokens", async (req, res) => {
   } catch (error) {
     console.error("Error authenticating user:", error);
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// OAuth Callback Handler
+app.post("/auth/oauth/callback", async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    // Validate authorization code: must be a string, reasonable length, and safe characters
+    if (
+      typeof code !== "string" ||
+      code.length < 10 ||
+      code.length > 256 ||
+      !/^[A-Za-z0-9\-\_\.\~]+$/.test(code)
+    ) {
+      return res.status(400).json({ error: "Invalid authorization code format" });
+    }
+
+    // Exchange authorization code for tokens
+    const tokenResponse = await axios.post(
+      `https://${process.env.AUTH0_DOMAIN}/oauth/token`,
+      {
+        grant_type: "authorization_code",
+        client_id: process.env.AUTH0_CLIENT_ID,
+        client_secret: process.env.AUTH0_CLIENT_SECRET,
+        code: code,
+        redirect_uri: process.env.AUTH0_CALLBACK_URL,
+      },
+      {
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+
+    const { access_token } = tokenResponse.data;
+
+    // Get user info from Auth0
+    const userInfoResponse = await axios.get(
+      `https://${process.env.AUTH0_DOMAIN}/userinfo`,
+      {
+        headers: { Authorization: `Bearer ${access_token}` },
+      }
+    );
+
+    const auth0User = userInfoResponse.data;
+
+    // Extract Auth0 user details
+    const auth0UserId = auth0User.sub;
+    const email = auth0User.email;
+    const emailVerified = auth0User.email_verified;
+
+    // Determine provider from sub claim
+    const providerMatch = auth0UserId.split("|")[0];
+    const provider = providerMatch.replace("-oauth2", "").replace("auth0", "email");
+
+    if (!email) {
+      return res.status(400).json({
+        error: "Email not provided by OAuth provider"
+      });
+    }
+
+    // Check if user exists by auth0UserId (already linked)
+    let user = await prisma.user.findUnique({
+      where: { auth0UserId },
+    });
+
+    // If not found by auth0UserId, check by email
+    if (!user) {
+      user = await prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (!user) {
+        return res.status(404).json({
+          error: "Account not found. Please contact a cashier to create your account first.",
+        });
+      }
+
+      // Link Auth0 account to existing user
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          auth0UserId,
+          oauthProvider: provider,
+          oauthLinkedAt: new Date(),
+          verified: emailVerified || user.verified,
+          lastLogin: new Date(),
+        },
+      });
+    } else {
+      // User already linked, just update last login
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { lastLogin: new Date() },
+      });
+    }
+
+    // Generate JWT token (same as password login)
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        utorid: user.utorid,
+        role: user.role,
+      },
+      JWT_SECRET,
+      {
+        expiresIn: "7d",
+      }
+    );
+
+    return res.json({
+      token,
+      expiresAt,
+      user: {
+        id: user.id,
+        utorid: user.utorid,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        verified: user.verified,
+      },
+    });
+  } catch (error) {
+    console.error("OAuth callback error:", error.response?.data || error.message);
+
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      return res.status(401).json({
+        error: "OAuth authentication failed. Please try again."
+      });
+    }
+
+    return res.status(500).json({
+      error: "OAuth authentication failed",
+      details: error.message,
+    });
   }
 });
 
@@ -1821,6 +2213,81 @@ app.post(
     }
   }
 );
+
+// Chatbot endpoint
+app.post("/chat", jwtMiddleware, requireRole("regular"), async (req, res) => {
+  try {
+    // Validate input
+    const chatSchema = z.object({
+      message: z.string()
+        .min(1, "Message cannot be empty")
+        .max(500, "Message too long (max 500 characters)")
+        .trim(),
+      conversationId: z.string().nullable().optional(),
+    });
+
+    const validation = chatSchema.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({
+        error: validation.error.errors[0].message,
+      });
+    }
+
+    const { message } = validation.data;
+    const userId = req.auth?.id || req.user?.id;
+
+    // Rate limiting check
+    if (!checkChatRateLimit(userId)) {
+      return res.status(429).json({
+        error: "Too many requests. Please wait before sending another message.",
+      });
+    }
+
+    // Gather user context based on message content
+    const userContext = await gatherUserContext(userId, message);
+
+    // Build system prompt with context
+    const systemPrompt = buildSystemPrompt(userContext);
+
+    // Call Gemini API
+    const model = genAI.getGenerativeModel({
+      model: process.env.CHATBOT_MODEL || "gemini-1.5-pro"
+    });
+
+    const result = await model.generateContent([
+      systemPrompt,
+      `User: ${message}`
+    ]);
+
+    const response = result.response.text();
+
+    return res.status(200).json({
+      response,
+      timestamp: new Date().toISOString(),
+      conversationId: null, // Reserved for future persistence
+    });
+
+  } catch (error) {
+    console.error("Chat error:", error);
+
+    // Handle Gemini API specific errors
+    if (error.message && error.message.includes("API key")) {
+      console.error("Gemini API key invalid or missing");
+      return res.status(500).json({
+        error: "Chat service configuration error. Please contact support.",
+      });
+    }
+
+    if (error.message === "User not found") {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Generic error
+    return res.status(500).json({
+      error: "Chat service temporarily unavailable. Please try again later.",
+    });
+  }
+});
 
 app.post("/events", jwtMiddleware, requireRole("manager"), async (req, res) => {
   try {
