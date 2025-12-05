@@ -1,9 +1,15 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
+import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 
 // Layout
 import AppLayout from './components/layout/AppLayout';
+
+// Chat Widget
+import ChatWidget from './components/chat/ChatWidget';
 
 // Auth Pages
 import LoginPage from './pages/auth/LoginPage';
@@ -81,8 +87,9 @@ const ProtectedRoute = ({ children }) => {
 function App() {
   return (
     <HelmetProvider>
-      <AuthProvider>
-        <Router>
+      <ThemeProvider>
+        <AuthProvider>
+          <Router>
           <Routes>
             {/* Auth Routes */}
             <Route path="/login" element={<LoginPage />} />
@@ -217,12 +224,18 @@ function App() {
               } />
             </Route>
 
-            
+
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-        </Router>
-      </AuthProvider>
+
+          {/* Chat widget - available on all authenticated pages */}
+          <ChatWidget />
+          </Router>
+        </AuthProvider>
+      </ThemeProvider>
+      <Analytics />
+      <SpeedInsights />
     </HelmetProvider>
   );
 }

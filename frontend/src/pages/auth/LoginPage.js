@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { useAuth0 } from '@auth0/auth0-react';
 import PageMeta from '../../components/common/PageMeta';
 import Alert from '../../components/common/Alert';
@@ -11,6 +12,7 @@ const LoginPage = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const { loginWithRedirect } = useAuth0();
   const navigate = useNavigate();
 
@@ -44,8 +46,25 @@ const LoginPage = () => {
   return (
     <>
       <PageMeta title="Login" description="Sign in to your account" />
-      
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-4">
+
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-gray-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-4">
+        {/* Theme toggle button - absolute positioned */}
+        <button
+          onClick={toggleTheme}
+          className="absolute top-4 right-4 flex items-center justify-center w-10 h-10 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm z-10"
+          aria-label="Toggle theme"
+        >
+          {theme === 'dark' ? (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+          ) : (
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+            </svg>
+          )}
+        </button>
+
         {/* Background pattern */}
         <div className="absolute inset-0 overflow-hidden">
           <div className="absolute -top-1/2 -right-1/2 w-full h-full bg-gradient-to-br from-brand-500/10 to-transparent rounded-full blur-3xl" />
@@ -58,12 +77,12 @@ const LoginPage = () => {
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-600 text-white text-2xl font-bold mb-4">
               LP
             </div>
-            <h1 className="text-3xl font-bold text-white">Loyalty Program</h1>
-            <p className="text-gray-400 mt-2">Sign in to your account</p>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Loyalty Program</h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-2">Sign in to your account</p>
           </div>
 
           {/* Form Card */}
-          <div className="bg-white/10 backdrop-blur-xl rounded-2xl border border-white/20 p-8">
+          <div className="bg-white dark:bg-white/10 backdrop-blur-xl rounded-2xl border border-gray-200 dark:border-white/20 p-8 shadow-xl">
             {error && (
               <div className="mb-6">
                 <Alert type="error">{error}</Alert>
@@ -87,37 +106,37 @@ const LoginPage = () => {
 
             <div className="relative my-6">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-white/20"></div>
+                <div className="w-full border-t border-gray-300 dark:border-white/20"></div>
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-transparent text-gray-400">Or continue with UTORid</span>
+                <span className="px-2 bg-white dark:bg-transparent text-gray-500 dark:text-gray-400">Or continue with UTORid</span>
               </div>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-200 mb-1.5">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1.5">
                   UTORid
                 </label>
                 <input
                   type="text"
                   value={utorid}
                   onChange={(e) => setUtorid(e.target.value)}
-                  className="w-full rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+                  className="w-full rounded-lg border border-gray-300 dark:border-white/20 bg-gray-50 dark:bg-white/5 px-4 py-3 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
                   placeholder="Enter your UTORid"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-200 mb-1.5">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1.5">
                   Password
                 </label>
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full rounded-lg border border-white/20 bg-white/5 px-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+                  className="w-full rounded-lg border border-gray-300 dark:border-white/20 bg-gray-50 dark:bg-white/5 px-4 py-3 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
                   placeholder="Enter your password"
                   required
                 />
