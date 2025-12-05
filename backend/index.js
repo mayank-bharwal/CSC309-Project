@@ -550,8 +550,14 @@ app.post("/auth/oauth/callback", async (req, res) => {
   try {
     const { code } = req.body;
 
-    if (!code) {
-      return res.status(400).json({ error: "Authorization code is required" });
+    // Validate authorization code: must be a string, reasonable length, and safe characters
+    if (
+      typeof code !== "string" ||
+      code.length < 10 ||
+      code.length > 256 ||
+      !/^[A-Za-z0-9\-\_\.\~]+$/.test(code)
+    ) {
+      return res.status(400).json({ error: "Invalid authorization code format" });
     }
 
     // Exchange authorization code for tokens
