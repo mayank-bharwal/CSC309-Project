@@ -178,8 +178,22 @@ function checkChatRateLimit(userId) {
 }
 
 // Enable CORS for frontend
+const allowedOrigins = [
+  'http://localhost:3001', // Local development
+  process.env.FRONTEND_URL // Production (Vercel)
+].filter(Boolean); // Remove undefined values
+
 app.use(cors({
-  origin: 'http://localhost:3001',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true
 }));
 
