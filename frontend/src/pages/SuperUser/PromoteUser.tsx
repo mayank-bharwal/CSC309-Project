@@ -19,26 +19,22 @@ function PromoteUserPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem("authToken");
-    if (!token) {
-      setError("Please log in as a superuser.");
-      return;
-    }
-
     const fetchUsers = async () => {
       try {
         setLoading(true);
+        setError(null);
 
-        const res = await fetch("http://localhost:3000/users", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const { data } = await api.get("/users");
 
-        if (!res.ok) throw new Error("Failed to load users.");
-        const data = await res.json();
-
-        setUsers(data.users || data);
+        const list = data.users ?? data;
+        setUsers(list as User[]);
       } catch (err: any) {
-        setError(err.message || "Failed to load users.");
+        console.error(err);
+        const msg =
+          err?.response?.data?.error ||
+          err?.message ||
+          "Failed to load users.";
+        setError(msg);
       } finally {
         setLoading(false);
       }
@@ -53,37 +49,27 @@ function PromoteUserPage() {
       return;
     }
 
-    const token = localStorage.getItem("authToken");
-    if (!token) {
-      setError("Please log in as a superuser.");
-      return;
-    }
-
     try {
       setError(null);
       setSuccess(null);
       setLoading(true);
 
-      const res = await fetch(
-        `http://localhost:3000/users/${selectedId}/role`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ role: newRole }),
-        }
-      );
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to promote user.");
-      }
+      await api.patch(`/users/${selectedId}/role`, { role: newRole });
 
       setSuccess("User role updated successfully.");
+
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === selectedId ? { ...u, role: newRole } : u
+        )
+      );
     } catch (err: any) {
-      setError(err.message || "Failed to promote user.");
+      console.error(err);
+      const msg =
+        err?.response?.data?.error ||
+        err?.message ||
+        "Failed to promote user.";
+      setError(msg);
     } finally {
       setLoading(false);
     }
