@@ -3,6 +3,7 @@ import PageBreadcrumb from "../../components/common/PageBreadCrumb";
 import ComponentCard from "../../components/common/ComponentCard";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
+import api from "../../utils/api";
 
 interface EventDetail {
   id: number;
@@ -13,7 +14,7 @@ interface EventDetail {
   [key: string]: any;
 }
 
-function EventDetailPage() {
+const EventDetailPage: React.FC = () => {
   const { eventId } = useParams<{ eventId: string }>();
 
   const [event, setEvent] = useState<EventDetail | null>(null);
@@ -21,12 +22,9 @@ function EventDetailPage() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (!eventId) return;
-
-    const token = localStorage.getItem("authToken");
-    if (!token) {
-      setError("Please log in to view this event.");
+    useEffect(() => {
+    if (!eventId) {
+      setError("No event selected.");
       return;
     }
 
@@ -35,23 +33,7 @@ function EventDetailPage() {
         setLoading(true);
         setError(null);
 
-        const res = await fetch(`http://localhost:3000/events/${eventId}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        if (!res.ok) {
-          let message = "Failed to load event.";
-          try {
-            const data = await res.json();
-            if (data?.error) message = data.error;
-          } catch {
-          }
-          throw new Error(message);
-        }
-
-        const data = await res.json();
+        const data: any = await api.get(`/events/${eventId}`);
 
         const dateFromBackend =
           typeof data.startTime === "string"
@@ -68,7 +50,11 @@ function EventDetailPage() {
         });
       } catch (err: any) {
         console.error(err);
-        setError(err.message || "Failed to load event.");
+        const message =
+          err?.response?.data?.error ||
+          err?.message ||
+          "Failed to load event.";
+        setError(message);
       } finally {
         setLoading(false);
       }
@@ -84,14 +70,9 @@ function EventDetailPage() {
 
   const handleSave = async () => {
     if (!event) return;
-    setSaving(true);
 
-    const token = localStorage.getItem("authToken");
-    if (!token) {
-      setError("Please log in to save changes.");
-      setSaving(false);
-      return;
-    }
+    setSaving(true);
+    setError(null);
 
     try {
       const startTime =
@@ -99,34 +80,17 @@ function EventDetailPage() {
           ? `${event.date}T00:00:00`
           : undefined;
 
-      const res = await fetch(
-        `http://localhost:3000/events/${event.id}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            name: event.name,
-            description: event.description,
-            location: event.location,
-            ...(startTime ? { startTime } : {}),
-          }),
-        }
-      );
+      const body: any = {
+        name: event.name,
+        description: event.description,
+        location: event.location,
+      };
 
-      if (!res.ok) {
-        let message = "Failed to save changes.";
-        try {
-          const data = await res.json();
-          if (data?.error) message = data.error;
-        } catch {
-        }
-        throw new Error(message);
+      if (startTime) {
+        body.startTime = startTime;
       }
 
-      const updated = await res.json();
+      const updated: any = await api.patch(`/events/${event.id}`, body);
 
       const updatedDate =
         typeof updated.startTime === "string"
@@ -139,11 +103,15 @@ function EventDetailPage() {
         date: updatedDate,
       });
 
-      setSaving(false);
       alert("Event saved successfully.");
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "Failed to save changes.");
+      const message =
+        err?.response?.data?.error ||
+        err?.message ||
+        "Failed to save changes.";
+      setError(message);
+    } finally {
       setSaving(false);
     }
   };

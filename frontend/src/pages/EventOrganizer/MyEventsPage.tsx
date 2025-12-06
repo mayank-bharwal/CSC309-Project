@@ -3,6 +3,7 @@ import PageBreadcrumb from "../../components/common/PageBreadCrumb";
 import ComponentCard from "../../components/common/ComponentCard";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import api from "../../utils/api";
 
 interface EventSummary {
   id: number;
@@ -17,71 +18,49 @@ interface EventSummary {
   [key: string]: any;
 }
 
-function MyEventsPage() {
+const MyEventsPage: React.FC = () => {
   const [events, setEvents] = useState<EventSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    const token = localStorage.getItem("authToken");
-
-    if (!token) {
-      setError("Please log in to view your events.");
-      return;
-    }
-
+useEffect(() => {
     const fetchEvents = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        const res = await fetch(
-          "http://localhost:3000/events?showFull=true",
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
+        const data: any = await api.get("/events?showFull=true");
 
-        if (!res.ok) {
-          let message = "Failed to load events.";
-          try {
-            const data = await res.json();
-            if (data?.error) message = data.error;
-          } catch {
-          }
-          throw new Error(message);
-        }
+        const list = Array.isArray(data.results) ? data.results : data;
 
-        const data = await res.json();
+        const mapped: EventSummary[] = (list || []).map((evt: any) => {
+          const date =
+            typeof evt.startTime === "string"
+              ? evt.startTime.slice(0, 10)
+              : "";
 
-        const mapped: EventSummary[] = (data.results || []).map(
-          (evt: any) => {
-            const date =
-              typeof evt.startTime === "string"
-                ? evt.startTime.slice(0, 10)
-                : "";
-
-            return {
-              id: evt.id,
-              name: evt.name ?? "",
-              date,
-              location: evt.location ?? "",
-              capacity: evt.capacity ?? null,
-              numGuests: evt.numGuests ?? 0,
-              pointsRemain: evt.pointsRemain,
-              pointsAwarded: evt.pointsAwarded,
-              published: evt.published,
-              ...evt,
-            };
-          }
-        );
+          return {
+            id: evt.id,
+            name: evt.name ?? "",
+            date,
+            location: evt.location ?? "",
+            capacity: evt.capacity ?? null,
+            numGuests: evt.numGuests ?? 0,
+            pointsRemain: evt.pointsRemain,
+            pointsAwarded: evt.pointsAwarded,
+            published: evt.published,
+            ...evt,
+          };
+        });
 
         setEvents(mapped);
       } catch (err: any) {
         console.error(err);
-        setError(err.message || "Failed to load events.");
+        const message =
+          err?.response?.data?.error ||
+          err?.message ||
+          "Failed to load events.";
+        setError(message);
       } finally {
         setLoading(false);
       }

@@ -3,10 +3,11 @@ import PageBreadcrumb from "../../components/common/PageBreadCrumb";
 import ComponentCard from "../../components/common/ComponentCard";
 import { useState } from "react";
 import { useParams } from "react-router-dom";
+import api from "../../utils/api";
 
 type RecipientType = "single" | "all";
 
-function AwardPointsPage() {
+const AwardPointsPage: React.FC = () => {
   const { eventId } = useParams<{ eventId: string }>();
 
   const [recipientType, setRecipientType] = useState<RecipientType>("single");
@@ -37,66 +38,29 @@ function AwardPointsPage() {
       return;
     }
 
-    const token = localStorage.getItem("authToken");
-    if (!token) {
-      setError("Please log in to award points.");
-      return;
-    }
+    setLoading(true);
 
     try {
-      setLoading(true);
-
       const body: any = {
-        type: "event",
-        amount: Number(points),
+        points: Number(points),
+        remark: remark || undefined,
+        recipientType,
       };
-
-      if (remark.trim() !== "") {
-        body.remark = remark.trim();
-      }
 
       if (recipientType === "single") {
         body.utorid = utorid.trim();
       }
 
-      const res = await fetch(
-        `http://localhost:3000/events/${eventId}/transactions`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(body),
-        }
-      );
+      await api.post(`/events/${eventId}/transactions`, body);
 
-      if (!res.ok) {
-        let message = "Failed to award points.";
-        try {
-          const data = await res.json();
-          if (data?.error) message = data.error;
-        } catch {
-        }
-        throw new Error(message);
-      }
-
-      await res.json();
-
-      if (recipientType === "single") {
-        setSuccess(
-          `Successfully awarded ${points} points to "${utorid.trim()}".`
-        );
-      } else {
-        setSuccess(
-          `Successfully awarded ${points} points to all RSVPed guests.`
-        );
-      }
-
-      setPoints("");
+      setSuccess("Points awarded successfully!");
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "Failed to award points.");
+      const message =
+        err?.response?.data?.error ||
+        err?.message ||
+        "Failed to award points.";
+      setError(message);
     } finally {
       setLoading(false);
     }

@@ -1,10 +1,12 @@
 import PageMeta from "../../components/common/PageMeta";
 import PageBreadcrumb from "../../components/common/PageBreadCrumb";
 import ComponentCard from "../../components/common/ComponentCard";
-import { useState } from "react";
-import { useParams } from "react-router-dom";
 
-function AddGuestPage() {
+import React, { useState } from "react";
+import { useParams } from "react-router-dom";
+import api from "../../utils/api";
+
+const AddGuestPage: React.FC = () => {
   const { eventId } = useParams<{ eventId: string }>();
 
   const [utorid, setUtorid] = useState("");
@@ -27,44 +29,22 @@ function AddGuestPage() {
       return;
     }
 
-    const token = localStorage.getItem("authToken");
-    if (!token) {
-      setError("Please log in to add guests.");
-      return;
-    }
+    setLoading(true);
 
     try {
-      setLoading(true);
-
-      const res = await fetch(
-        `http://localhost:3000/events/${eventId}/guests`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ utorid: utorid.trim() }),
-        }
-      );
-
-      if (!res.ok) {
-        let message = "Failed to add guest.";
-        try {
-          const data = await res.json();
-          if (data?.error) message = data.error;
-        } catch {
-        }
-        throw new Error(message);
-      }
-
-      await res.json();
+      await api.post(`/events/${eventId}/guests`, {
+        utorid: utorid.trim(),
+      });
 
       setSuccess(`Successfully added "${utorid.trim()}" to this event.`);
       setUtorid("");
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "Failed to add guest.");
+      const message =
+        err?.response?.data?.error ||
+        err?.message ||
+        "Failed to add guest.";
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -72,13 +52,11 @@ function AddGuestPage() {
 
   return (
     <>
-      <PageMeta title="Add Guest" description="Add a guest to this event" />
+      <PageMeta title="Add Guest" />
       <PageBreadcrumb pageTitle="Add Guest" />
 
         <ComponentCard
-          title={
-            eventId ? `Add Guest to Event #${eventId}` : "Add Guest to Event"
-          }
+          title={eventId ? `Add Guest to Event #${eventId}` : "Add Guest to Event"}
         >
           {error && <p style={{ color: "red" }}>{error}</p>}
           {success && <p style={{ color: "green" }}>{success}</p>}
@@ -104,6 +82,6 @@ function AddGuestPage() {
         </ComponentCard>
     </>
   );
-}
+};
 
 export default AddGuestPage;
