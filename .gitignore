@@ -1,0 +1,22 @@
+*.sh
+.claude
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+*.log
+*.md
+# Database
+*.db
+*.db-journal
+
+# Uploads
+backend/uploads/
