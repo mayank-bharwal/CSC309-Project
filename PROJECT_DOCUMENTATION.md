@@ -414,8 +414,6 @@ All list pages implement pagination:
 #### 7.4 Documentation (15 points) ✅
 **Files:**
 - [INSTALL.md](INSTALL.md) - Complete setup and deployment guide
-- [CLAUDE.md](CLAUDE.md) - Developer guide and architecture
-- This file (PROJECT_DOCUMENTATION.md) - Requirements mapping
 
 **Contents:**
 - Prerequisites and installation steps
@@ -680,7 +678,6 @@ The system is production-ready, fully deployed, and accessible at:
 
 For questions or issues, please refer to:
 - Installation Guide: [INSTALL.md](INSTALL.md)
-- Developer Guide: [CLAUDE.md](CLAUDE.md)
 - Live Application: [https://csc-309-project-frontend.vercel.app/login](https://csc-309-project-frontend.vercel.app/login)
 
 ---
