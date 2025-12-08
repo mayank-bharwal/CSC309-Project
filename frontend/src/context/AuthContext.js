@@ -137,6 +137,8 @@ export const AuthProvider = ({ children }) => {
         isCashier,
         isSuperuser,
         refreshUser: fetchUser,
+        setToken,
+        setUser,
       }}
     >
       {children}
