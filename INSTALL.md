@@ -1,4 +1,15 @@
-# Loyalty Program - Installation Guide
+# CSSU Rewards - Installation & Deployment Guide
+
+## Table of Contents
+1. [Prerequisites](#prerequisites)
+2. [Local Development Setup](#local-development-setup)
+3. [Production Deployment](#production-deployment)
+4. [Demo Accounts](#demo-accounts)
+5. [Environment Configuration](#environment-configuration)
+6. [API Documentation](#api-documentation)
+7. [Troubleshooting](#troubleshooting)
+
+---
 
 ## Prerequisites
 
@@ -6,7 +17,8 @@ Before setting up the project, ensure you have the following installed:
 
 - **Node.js**: Version 18.x or higher (LTS recommended)
 - **npm**: Version 9.x or higher (comes with Node.js)
-- **SQLite3**: For the database
+- **PostgreSQL**: Version 14.x or higher (for production)
+- **Git**: For cloning the repository
 
 ### Installing Node.js
 
@@ -24,7 +36,25 @@ sudo apt-get install -y nodejs
 #### Windows
 Download and install from [nodejs.org](https://nodejs.org/)
 
-## Project Setup
+### Installing PostgreSQL
+
+#### macOS (using Homebrew)
+```bash
+brew install postgresql@14
+brew services start postgresql@14
+```
+
+#### Ubuntu/Debian
+```bash
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+```
+
+---
+
+## Local Development Setup
 
 ### 1. Clone the Repository
 
@@ -44,37 +74,72 @@ npm install
 
 #### Configure Environment Variables
 
-Create a `.env` file in the backend directory:
+Create a `.env` file in the `backend` directory:
 
 ```bash
-echo "JWT_SECRET=your-secret-key-here" > .env
+# JWT Secret for token signing
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+
+# PostgreSQL Database URL
+DATABASE_URL="postgresql://user:password@localhost:5432/cssu_rewards?schema=public"
+
+# Superuser Credentials (for seed script)
+SUPERUSER_UTORID=superadmin
+SUPERUSER_NAME=Super Administrator
+SUPERUSER_EMAIL=admin@example.com
+SUPERUSER_PASSWORD=SuperSecure123!
+
+# Node Environment
+NODE_ENV=development
 ```
 
-Replace `your-secret-key-here` with a secure random string.
+**Important**: Replace the database credentials and JWT secret with your own values.
+
+#### Set Up PostgreSQL Database
+
+Create a new PostgreSQL database:
+
+```bash
+# Access PostgreSQL
+psql postgres
+
+# Create database
+CREATE DATABASE cssu_rewards;
+
+# Create user (optional)
+CREATE USER cssu_admin WITH ENCRYPTED PASSWORD 'your_password';
+GRANT ALL PRIVILEGES ON DATABASE cssu_rewards TO cssu_admin;
+
+# Exit
+\q
+```
+
+Update your `DATABASE_URL` in `.env` to match your database configuration.
 
 #### Initialize the Database
 
-Run Prisma migrations to set up the database:
+Run Prisma migrations to set up the database schema:
 
 ```bash
 npx prisma migrate deploy
 ```
 
-#### Seed the Database (Optional)
+#### Seed the Database
 
-To populate the database with test data:
+Populate the database with test data (includes 14 users, 5+ events, 5+ promotions, 30+ transactions):
 
 ```bash
 npx prisma db seed
 ```
 
-#### Create a Superuser
-
-To create an initial superuser account:
-
-```bash
-node prisma/createsu.js
-```
+This creates:
+- 1 Superuser (from env variables)
+- 2 Managers
+- 3 Cashiers
+- 8 Regular users
+- 5 Events
+- 5 Promotions
+- 30+ Sample transactions
 
 ### 3. Frontend Setup
 
@@ -85,11 +150,29 @@ cd ../frontend
 npm install
 ```
 
-### 4. Running the Application
+#### Configure Frontend Environment
 
-#### Development Mode
+Create a `.env` file in the `frontend` directory:
 
-**Start the Backend Server:**
+```bash
+# Development port
+PORT=3001
+
+# Backend API URL (leave empty for local proxy)
+REACT_APP_API_URL=
+
+# Auth0 OAuth Configuration (optional)
+REACT_APP_AUTH0_DOMAIN=your-auth0-domain.auth0.com
+REACT_APP_AUTH0_CLIENT_ID=your-client-id
+REACT_APP_AUTH0_CALLBACK_URL=http://localhost:3001/auth/callback
+REACT_APP_AUTH0_AUDIENCE=https://your-auth0-domain.auth0.com/api/v2/
+```
+
+For local development, leave `REACT_APP_API_URL` empty to use the proxy configured in `package.json`.
+
+### 4. Running the Application Locally
+
+#### Start the Backend Server
 
 ```bash
 cd backend
@@ -98,7 +181,12 @@ node index.js 3000
 
 The backend will run on `http://localhost:3000`
 
-**Start the Frontend Development Server:**
+You should see:
+```
+🚀 CSSU Rewards API Server started on port 3000
+```
+
+#### Start the Frontend Development Server
 
 Open a new terminal:
 
@@ -107,199 +195,421 @@ cd frontend
 npm start
 ```
 
-The frontend will run on `http://localhost:3001` (or another port if 3001 is busy)
+The frontend will open automatically at `http://localhost:3001`
 
-#### Production Mode
+#### Access the Application
 
-**Build the Frontend:**
+- **Frontend**: http://localhost:3001
+- **Backend API**: http://localhost:3000
+- **Backend Health Check**: http://localhost:3000/
 
-```bash
-cd frontend
-npm run build
+---
+
+## Production Deployment
+
+This project is deployed using:
+- **Backend**: Railway (https://railway.app/)
+- **Frontend**: Vercel (https://vercel.com/)
+- **Database**: PostgreSQL on Railway
+
+### Deployment Architecture
+
+```
+┌─────────────────────────────────────────────┐
+│  User Browser                               │
+└─────────────────┬───────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────┐
+│  Frontend (Vercel)                          │
+│  - React SPA                                │
+│  - Static hosting                           │
+│  - https://your-app.vercel.app              │
+└─────────────────┬───────────────────────────┘
+                  │
+                  │ API Calls
+                  ▼
+┌─────────────────────────────────────────────┐
+│  Backend (Railway)                          │
+│  - Express.js API                           │
+│  - JWT Authentication                       │
+│  - https://csc309-project.up.railway.app    │
+└─────────────────┬───────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────┐
+│  PostgreSQL Database (Railway)              │
+│  - User data, transactions, events, etc.    │
+└─────────────────────────────────────────────┘
 ```
 
-This creates an optimized production build in the `frontend/build` directory.
+### Backend Deployment (Railway)
 
-## Deployment
+#### 1. Create a Railway Account
+- Go to https://railway.app/
+- Sign up with GitHub
 
-### Environment Requirements
+#### 2. Create New Project
+- Click "New Project"
+- Select "Deploy from GitHub repo"
+- Choose your repository
+- Set root directory to `/backend`
 
-- A machine running Ubuntu 20.04 (or similar Linux distribution)
-- Node.js 18.x or higher
-- nginx (recommended for serving the frontend)
+#### 3. Add PostgreSQL Database
+- In your Railway project, click "New"
+- Select "Database" → "PostgreSQL"
+- Railway will automatically create a `DATABASE_URL` environment variable
 
-### Deployment Steps
+#### 4. Configure Environment Variables
 
-#### 1. Set Up the Server
+In Railway dashboard, add these environment variables:
 
-```bash
-# Update system packages
-sudo apt update && sudo apt upgrade -y
-
-# Install Node.js
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# Install nginx (optional, for serving frontend)
-sudo apt install nginx -y
-
-# Install PM2 for process management
-sudo npm install -g pm2
+```
+DATABASE_URL=<automatically set by Railway>
+JWT_SECRET=your-production-jwt-secret-change-this
+NODE_ENV=production
+SUPERUSER_UTORID=admin
+SUPERUSER_NAME=Administrator
+SUPERUSER_EMAIL=admin@cssu.com
+SUPERUSER_PASSWORD=ChangeThisPassword123!
 ```
 
-#### 2. Deploy the Backend
+#### 5. Deploy
 
-```bash
-# Navigate to backend directory
-cd /path/to/CSC309-Project/backend
+Railway automatically deploys when you push to your GitHub repository.
 
-# Install dependencies
-npm install --production
+The start command in `package.json` will:
+1. Run database migrations (`npx prisma migrate deploy`)
+2. Seed the database (`npx prisma db seed`)
+3. Start the server (`node index.js 3000`)
 
-# Set up environment variables
-export JWT_SECRET=your-production-secret
+#### 6. Note Your Backend URL
 
-# Run database migrations
-npx prisma migrate deploy
+Railway provides a URL like: `https://csc309-project.up.railway.app`
 
-# Start the backend with PM2
-pm2 start index.js --name "loyalty-backend" -- 3000
+### Frontend Deployment (Vercel)
 
-# Save PM2 configuration
-pm2 save
-pm2 startup
+#### 1. Create a Vercel Account
+- Go to https://vercel.com/
+- Sign up with GitHub
+
+#### 2. Import Project
+- Click "Add New" → "Project"
+- Import your GitHub repository
+- Set root directory to `/frontend`
+
+#### 3. Configure Environment Variables
+
+In Vercel dashboard, add these environment variables:
+
+```
+REACT_APP_API_URL=https://csc309-project.up.railway.app
+REACT_APP_AUTH0_DOMAIN=your-auth0-domain.auth0.com
+REACT_APP_AUTH0_CLIENT_ID=your-client-id
+REACT_APP_AUTH0_CALLBACK_URL=https://your-app.vercel.app/auth/callback
+REACT_APP_AUTH0_AUDIENCE=https://your-auth0-domain.auth0.com/api/v2/
 ```
 
-#### 3. Deploy the Frontend
+**Important**: Update `REACT_APP_API_URL` with your Railway backend URL.
 
-**Option A: Using nginx (Recommended)**
+#### 4. Deploy
 
-```bash
-# Build the frontend
-cd /path/to/CSC309-Project/frontend
-npm install
-npm run build
+Vercel automatically builds and deploys your frontend.
 
-# Copy build files to nginx directory
-sudo cp -r build/* /var/www/html/
+#### 5. Configure Auth0 (Optional)
 
-# Configure nginx
-sudo nano /etc/nginx/sites-available/default
-```
+If using OAuth:
+1. Go to Auth0 dashboard
+2. Update "Allowed Callback URLs" to include your Vercel URL
+3. Update "Allowed Logout URLs"
+4. Update "Allowed Web Origins"
 
-Add the following nginx configuration:
+---
 
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
+## Demo Accounts
 
-    root /var/www/html;
-    index index.html;
+After running the seed script, the following demo accounts are available:
 
-    # Handle React Router
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
+### Superuser
+- **UTORid**: `superadmin` (or as configured in env)
+- **Password**: `SuperSecure123!` (or as configured in env)
+- **Capabilities**: Full system access, can promote users to manager/superuser
 
-    # Proxy API requests to backend
-    location /api {
-        rewrite ^/api(.*)$ $1 break;
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
+### Managers
+- **UTORid**: `manager1`
+- **Password**: `password123`
+- **Capabilities**: Manage users, transactions, events, promotions
 
-    # Proxy all API routes
-    location ~ ^/(auth|users|transactions|events|promotions|uploads) {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-```
+- **UTORid**: `manager2`
+- **Password**: `password123`
+- **Capabilities**: Same as manager1
 
-Restart nginx:
+### Cashiers
+- **UTORid**: `cashier1`
+- **Password**: `password123`
+- **Capabilities**: Create transactions, process redemptions
 
-```bash
-sudo systemctl restart nginx
-```
+- **UTORid**: `cashier2`
+- **Password**: `password123`
 
-**Option B: Serving frontend and backend from the same server**
+- **UTORid**: `cashier3` (marked as suspicious)
+- **Password**: `password123`
 
-You can configure the backend to serve the static frontend files:
+### Regular Users
+- **UTORid**: `user1` (verified)
+- **Password**: `password123`
 
-```javascript
-// Add to backend/index.js before the 404 handler
-app.use(express.static(path.join(__dirname, '../frontend/build')));
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/build', 'index.html'));
-});
-```
+- **UTORid**: `user2` (verified)
+- **Password**: `password123`
 
-### 4. SSL/HTTPS (Production)
+- **UTORid**: `user3` (unverified)
+- **Password**: `password123`
 
-For production, use Let's Encrypt for free SSL certificates:
+- **UTORid**: `user4` (suspicious)
+- **Password**: `password123`
 
-```bash
-sudo apt install certbot python3-certbot-nginx -y
-sudo certbot --nginx -d your-domain.com
-```
+- **UTORid**: `user5` (suspended)
+- **Password**: `password123`
 
-## Manager Login Credentials
+Additional regular users: `user6`, `user7`, `user8` with various properties.
 
-After running the seed script or creating a superuser, use these credentials:
+---
 
-- **UTORid**: (as created during setup)
-- **Password**: (as set during setup)
+## Environment Configuration
+
+### Backend Environment Variables
+
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `DATABASE_URL` | PostgreSQL connection string | Yes | - |
+| `JWT_SECRET` | Secret key for JWT signing | Yes | - |
+| `NODE_ENV` | Environment (development/production) | No | development |
+| `SUPERUSER_UTORID` | Initial superuser UTORid | No | superuser |
+| `SUPERUSER_NAME` | Initial superuser name | No | Super User |
+| `SUPERUSER_EMAIL` | Initial superuser email | No | superuser@example.com |
+| `SUPERUSER_PASSWORD` | Initial superuser password | No | superuser123 |
+
+### Frontend Environment Variables
+
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `PORT` | Development server port | No | 3000 |
+| `REACT_APP_API_URL` | Backend API URL | Yes | - |
+| `REACT_APP_AUTH0_DOMAIN` | Auth0 domain | No (if using OAuth) | - |
+| `REACT_APP_AUTH0_CLIENT_ID` | Auth0 client ID | No (if using OAuth) | - |
+| `REACT_APP_AUTH0_CALLBACK_URL` | OAuth callback URL | No (if using OAuth) | - |
+| `REACT_APP_AUTH0_AUDIENCE` | Auth0 API audience | No (if using OAuth) | - |
+
+---
+
+## API Documentation
+
+### Authentication Endpoints
+
+- `POST /auth/tokens` - Login with UTORid and password
+  ```json
+  {
+    "utorid": "user1",
+    "password": "password123"
+  }
+  ```
+
+- `POST /auth/resets` - Request password reset
+  ```json
+  {
+    "email": "user@example.com"
+  }
+  ```
+
+- `POST /auth/resets/:resetToken` - Complete password reset
+
+### User Endpoints
+
+- `GET /users/me` - Get current user profile
+- `GET /users` - List all users (Manager+)
+- `GET /users/:id` - Get user details (Cashier+)
+- `POST /users` - Create new user (Cashier+)
+- `PATCH /users/:id` - Update user (Manager+)
+- `PATCH /users/:id/suspend` - Suspend/unsuspend user (Manager+)
+- `PATCH /users/me/avatar` - Upload avatar image
+
+### Transaction Endpoints
+
+- `GET /transactions` - List all transactions (Manager+) or user's own transactions
+- `GET /transactions/:id` - Get transaction details
+- `POST /transactions` - Create transaction (Cashier+)
+- `PATCH /transactions/:id` - Update transaction (Manager+)
+- `PATCH /transactions/:id/process` - Process redemption (Cashier+)
+
+### Event Endpoints
+
+- `GET /events` - List all events
+- `GET /events/:id` - Get event details
+- `POST /events` - Create event (Manager+)
+- `PATCH /events/:id` - Update event (Manager+)
+- `DELETE /events/:id` - Delete event (Manager+)
+- `POST /events/:id/organizers` - Add event organizer (Manager+)
+- `DELETE /events/:id/organizers/:userId` - Remove organizer (Manager+)
+- `POST /events/:id/guests` - RSVP to event
+- `DELETE /events/:id/guests/:userId` - Cancel RSVP
+- `POST /events/:id/award` - Award points to attendees (Organizer/Manager)
+
+### Promotion Endpoints
+
+- `GET /promotions` - List all promotions
+- `GET /promotions/:id` - Get promotion details
+- `POST /promotions` - Create promotion (Manager+)
+- `PATCH /promotions/:id` - Update promotion (Manager+)
+- `DELETE /promotions/:id` - Delete promotion (Manager+)
+
+---
+
+## Technology Stack
+
+### Frontend
+- **React** 18.x - UI framework
+- **React Router** 6.x - Client-side routing
+- **Tailwind CSS** 3.x - Styling
+- **Axios** - HTTP client
+- **Auth0** - OAuth authentication (optional)
+- **Vercel Analytics** - Performance monitoring
+
+### Backend
+- **Node.js** 18.x - Runtime
+- **Express.js** 4.x - Web framework
+- **Prisma** 6.x - ORM
+- **PostgreSQL** 14.x - Database
+- **JWT** - Authentication
+- **bcrypt** - Password hashing
+- **Multer** - File uploads
+- **Zod** - Schema validation
+
+### Deployment
+- **Railway** - Backend hosting + PostgreSQL
+- **Vercel** - Frontend hosting (static)
+
+---
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Port already in use**: Kill the process using the port or use a different port
-   ```bash
-   lsof -i :3000  # Find process using port 3000
-   kill -9 <PID>  # Kill the process
-   ```
+#### 1. Port Already in Use
 
-2. **Database errors**: Reset the database
-   ```bash
-   npx prisma migrate reset
-   ```
+**Error**: `EADDRINUSE: address already in use :::3000`
 
-3. **Node modules issues**: Clear and reinstall
-   ```bash
-   rm -rf node_modules package-lock.json
-   npm install
-   ```
+**Solution**:
+```bash
+# Find process using the port
+lsof -i :3000
 
-4. **Permission issues on Linux**:
-   ```bash
-   sudo chown -R $USER:$USER /path/to/project
-   ```
+# Kill the process
+kill -9 <PID>
 
-## API Documentation
+# Or use a different port
+node index.js 3001
+```
 
-The backend exposes the following main endpoints:
+#### 2. Database Connection Errors
 
-- `POST /auth/tokens` - Login
-- `POST /auth/resets` - Request password reset
-- `GET /users` - List all users (Manager+)
-- `GET /users/:id` - Get user details (Cashier+)
-- `PATCH /users/:id` - Update user (Manager+)
-- `GET /transactions` - List all transactions (Manager+)
-- `POST /transactions` - Create transaction (Cashier+)
-- `GET /promotions` - List promotions
-- `POST /promotions` - Create promotion (Manager+)
-- `GET /events` - List events
-- `POST /events` - Create event (Manager+)
+**Error**: `Can't reach database server`
 
-Refer to the backend source code for complete API documentation.
+**Solutions**:
+- Verify PostgreSQL is running: `brew services list` (macOS) or `systemctl status postgresql` (Linux)
+- Check `DATABASE_URL` in `.env` is correct
+- Ensure database exists: `psql -l`
+- Check database credentials
 
+#### 3. Prisma Migration Errors
+
+**Error**: `Migration failed`
+
+**Solutions**:
+```bash
+# Reset database (WARNING: deletes all data)
+npx prisma migrate reset
+
+# Or manually apply migrations
+npx prisma migrate deploy
+
+# Generate Prisma Client
+npx prisma generate
+```
+
+#### 4. Frontend Can't Connect to Backend
+
+**Error**: `Network Error` or `CORS error`
+
+**Solutions**:
+- Verify backend is running on port 3000
+- Check `REACT_APP_API_URL` in frontend `.env`
+- For local development, leave `REACT_APP_API_URL` empty to use proxy
+- Ensure CORS is configured in backend (already done in `index.js`)
+
+#### 5. JWT Token Errors
+
+**Error**: `Invalid token` or `401 Unauthorized`
+
+**Solutions**:
+- Clear localStorage: `localStorage.clear()` in browser console
+- Verify `JWT_SECRET` is set in backend `.env`
+- Ensure `JWT_SECRET` is the same across restarts
+- Check token expiration (default 7 days)
+
+#### 6. Seed Script Fails
+
+**Error**: `Table does not exist`
+
+**Solution**:
+```bash
+# Run migrations first
+npx prisma migrate deploy
+
+# Then seed
+npx prisma db seed
+```
+
+#### 7. Node Modules Issues
+
+**Solution**:
+```bash
+# Clear and reinstall
+rm -rf node_modules package-lock.json
+npm install
+```
+
+#### 8. Permission Issues (Linux/macOS)
+
+**Solution**:
+```bash
+# Fix ownership
+sudo chown -R $USER:$USER /path/to/project
+
+# Fix file permissions
+chmod -R 755 /path/to/project
+```
+
+---
+
+## Additional Resources
+
+- **Prisma Documentation**: https://www.prisma.io/docs/
+- **Express.js Guide**: https://expressjs.com/
+- **React Documentation**: https://react.dev/
+- **Railway Documentation**: https://docs.railway.app/
+- **Vercel Documentation**: https://vercel.com/docs
+
+---
+
+## Support
+
+For issues or questions:
+1. Check the [Troubleshooting](#troubleshooting) section
+2. Review the project's REQUIREMENTS_CHECKLIST.md
+3. Consult the course TAs during tutorial sessions
+
+---
+
+**Last Updated**: December 2025
+**Course**: CSC309 - Programming on the Web
+**Project**: Loyalty Program System

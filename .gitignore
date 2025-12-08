@@ -14,9 +14,13 @@ dist/
 build/
 *.log
 *.md
+!PROJECT_DOCUMENTATION.md
+!INSTALL.md
 # Database
 *.db
 *.db-journal
 
 # Uploads
 backend/uploads/
+*.docx
+*.txt
