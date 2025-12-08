@@ -41,6 +41,10 @@ import EventDetailPage from "./pages/Regular/EventsDetailPage";
 import ListTransactionsPage from './pages/Regular/PastTransactionPage';
 import UnprocessedRedemptionPage from './pages/Regular/UnprocessedQRPage';
 
+// Cashier Pages
+import CreateTransactionPage from './pages/cashier/CreateTransactionPage';
+import ProcessRedemptionPage from './pages/cashier/ProcessRedemptionPage';
+
 // Protected Route for Manager
 const ManagerRoute = ({ children }) => {
   const { user, loading, isManager } = useAuth();
@@ -58,6 +62,29 @@ const ManagerRoute = ({ children }) => {
   }
 
   if (!isManager()) {
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
+};
+
+// Protected Route for Cashier
+const CashierRoute = ({ children }) => {
+  const { user, loading, isCashier } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="w-8 h-8 border-2 border-gray-200 border-t-brand-500 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (!isCashier()) {
     return <Navigate to="/" replace />;
   }
 
@@ -184,7 +211,25 @@ function App() {
                   </ManagerRoute>
                 }
               />
-              
+
+            {/* ---- Cashier pages ---- */}
+              <Route
+                path="/cashier/create-transaction"
+                element={
+                  <CashierRoute>
+                    <CreateTransactionPage />
+                  </CashierRoute>
+                }
+              />
+              <Route
+                path="/cashier/process-redemption"
+                element={
+                  <CashierRoute>
+                    <ProcessRedemptionPage />
+                  </CashierRoute>
+                }
+              />
+
             {/* ---- Regular authenticated user pages ---- */}
               <Route path="/regular/points" element={
                 <ProtectedRoute><PointsPage /></ProtectedRoute>
