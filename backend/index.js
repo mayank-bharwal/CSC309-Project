@@ -481,6 +481,106 @@ USER CONTEXT:
   return prompt;
 }
 
+// Root route - Health check
+app.get("/", (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>CSSU Rewards API</title>
+      <style>
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          min-height: 100vh;
+          margin: 0;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .container {
+          background: white;
+          padding: 3rem;
+          border-radius: 1rem;
+          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+          text-align: center;
+          max-width: 500px;
+        }
+        h1 {
+          color: #667eea;
+          margin: 0 0 1rem 0;
+          font-size: 2.5rem;
+        }
+        .status {
+          display: inline-block;
+          background: #10b981;
+          color: white;
+          padding: 0.5rem 1.5rem;
+          border-radius: 2rem;
+          font-weight: 600;
+          margin: 1rem 0;
+        }
+        .info {
+          color: #6b7280;
+          margin: 1.5rem 0;
+          line-height: 1.6;
+        }
+        .timestamp {
+          color: #9ca3af;
+          font-size: 0.875rem;
+          margin-top: 2rem;
+        }
+        .api-info {
+          background: #f3f4f6;
+          padding: 1rem;
+          border-radius: 0.5rem;
+          margin-top: 1.5rem;
+          text-align: left;
+        }
+        .api-info h3 {
+          margin: 0 0 0.5rem 0;
+          color: #374151;
+          font-size: 1rem;
+        }
+        .api-info p {
+          margin: 0.25rem 0;
+          color: #6b7280;
+          font-size: 0.875rem;
+        }
+        code {
+          background: #e5e7eb;
+          padding: 0.125rem 0.375rem;
+          border-radius: 0.25rem;
+          font-family: 'Courier New', monospace;
+          font-size: 0.875rem;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>🎉 CSSU Rewards API</h1>
+        <div class="status">✓ Backend is Running</div>
+        <div class="info">
+          <p>The CSSU Rewards backend server is up and operational.</p>
+          <p>All systems are functioning normally.</p>
+        </div>
+        <div class="api-info">
+          <h3>API Information</h3>
+          <p><strong>Environment:</strong> ${process.env.NODE_ENV || 'development'}</p>
+          <p><strong>Database:</strong> PostgreSQL (Railway)</p>
+          <p><strong>Port:</strong> ${port}</p>
+        </div>
+        <div class="timestamp">
+          Server Time: ${new Date().toISOString()}
+        </div>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
 app.post("/auth/tokens", async (req, res) => {
   try {
     const { utorid, password } = req.body;
