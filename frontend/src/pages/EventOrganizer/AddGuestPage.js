@@ -6,15 +6,15 @@ import React, { useState } from "react";
 import { useParams } from "react-router-dom";
 import api from "../../utils/api";
 
-const AddGuestPage: React.FC = () => {
-  const { eventId } = useParams<{ eventId: string }>();
+const AddGuestPage = () => {
+  const { eventId } = useParams();
 
   const [utorid, setUtorid] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     setSuccess(null);
@@ -38,7 +38,7 @@ const AddGuestPage: React.FC = () => {
 
       setSuccess(`Successfully added "${utorid.trim()}" to this event.`);
       setUtorid("");
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       const message =
         err?.response?.data?.error ||

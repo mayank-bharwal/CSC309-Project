@@ -1,24 +1,23 @@
 import PageMeta from "../../components/common/PageMeta";
 import PageBreadcrumb from "../../components/common/PageBreadCrumb";
 import ComponentCard from "../../components/common/ComponentCard";
-import { useState } from "react";
+
+import React, { useState } from "react";
 import { useParams } from "react-router-dom";
 import api from "../../utils/api";
 
-type RecipientType = "single" | "all";
+const AwardPointsPage = () => {
+  const { eventId } = useParams();
 
-const AwardPointsPage: React.FC = () => {
-  const { eventId } = useParams<{ eventId: string }>();
-
-  const [recipientType, setRecipientType] = useState<RecipientType>("single");
+  const [recipientType, setRecipientType] = useState("single");
   const [utorid, setUtorid] = useState("");
-  const [points, setPoints] = useState<string>("");
+  const [points, setPoints] = useState("");
   const [remark, setRemark] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     setSuccess(null);
@@ -41,7 +40,7 @@ const AwardPointsPage: React.FC = () => {
     setLoading(true);
 
     try {
-      const body: any = {
+      const body = {
         points: Number(points),
         remark: remark || undefined,
         recipientType,
@@ -54,7 +53,7 @@ const AwardPointsPage: React.FC = () => {
       await api.post(`/events/${eventId}/transactions`, body);
 
       setSuccess("Points awarded successfully!");
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       const message =
         err?.response?.data?.error ||
