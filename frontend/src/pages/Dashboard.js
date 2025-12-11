@@ -4,14 +4,19 @@ import PageBreadcrumb from '../components/common/PageBreadcrumb';
 import ComponentCard from '../components/common/ComponentCard';
 import { Link } from 'react-router-dom';
 import RegularDashboard from './Regular/RegularDashboard';
+import CashierDashboard from "./cashier/CashierDashboard";
 
 const Dashboard = () => {
   const { user, isManager } = useAuth();
 
-  if (!isManager()) {
-    return <RegularDashboard user={user} />;
+  if (user.role === "regular") {
+  return <RegularDashboard user={user} />;
   }
 
+  if (user.role === "cashier") {
+  return <CashierDashboard />;
+  }
+  
   const managerStats = [
     {
       title: 'Users',
