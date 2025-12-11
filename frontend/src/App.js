@@ -17,6 +17,10 @@ import OAuthCallbackPage from './pages/auth/OAuthCallbackPage';
 // Dashboard
 import Dashboard from './pages/Dashboard';
 
+// Profile Page
+import ProfilePage from './pages/ProfilePage';
+
+
 // Manager Pages
 import UsersListPage from './pages/manager/UsersListPage';
 import UserEditPage from './pages/manager/UserEditPage';
@@ -129,6 +133,18 @@ function App() {
                   <Dashboard />
                 </ProtectedRoute>
               } />
+
+              {/*PROFILE PAGE FOR ALL ROLES */}
+                <Route
+                  path="/profile"
+                  element={
+                    <ProtectedRoute>
+                      <ProfilePage />
+                    </ProtectedRoute>
+                  }
+                />
+
+
               
               {/* Manager Routes */}
               <Route

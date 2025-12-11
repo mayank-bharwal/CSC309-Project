@@ -3,9 +3,14 @@ import PageMeta from '../components/common/PageMeta';
 import PageBreadcrumb from '../components/common/PageBreadcrumb';
 import ComponentCard from '../components/common/ComponentCard';
 import { Link } from 'react-router-dom';
+import RegularDashboard from './Regular/RegularDashboard';
 
 const Dashboard = () => {
   const { user, isManager } = useAuth();
+
+  if (!isManager()) {
+    return <RegularDashboard user={user} />;
+  }
 
   const managerStats = [
     {
@@ -117,6 +122,7 @@ const Dashboard = () => {
         </div>
       )}
 
+      
       {/* User Info Card */}
       <ComponentCard title="Account Information" desc="Your profile details">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
