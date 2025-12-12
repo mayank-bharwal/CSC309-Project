@@ -1,5 +1,5 @@
 import PageMeta from "../../components/common/PageMeta";
-import PageBreadcrumb from "../../components/common/PageBreadCrumb";
+import PageBreadcrumb from "../../components/common/PageBreadcrumb";
 import ComponentCard from "../../components/common/ComponentCard";
 
 import React, { useEffect, useState } from "react";
@@ -110,7 +110,7 @@ const MyEventsPage = () => {
                       : `${evt.numGuests}/${evt.capacity}`}
                   </td>
                   <td style={{ padding: "8px", borderTop: "1px solid #eee" }}>
-                    <Link to={`/events/${evt.id}`}>View / Edit</Link>
+                    <Link to={`/event-organizer/events/${evt.id}`}>View / Edit</Link>
                   </td>
                 </tr>
               ))}

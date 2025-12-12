@@ -1,9 +1,8 @@
-import PageMeta from "../../components/common/PageMeta";
-import PageBreadcrumb from "../../components/common/PageBreadCrumb";
-import ComponentCard from "../../components/common/ComponentCard";
-
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
+import PageMeta from "../../components/common/PageMeta";
+import PageBreadcrumb from "../../components/common/PageBreadcrumb";
+import ComponentCard from "../../components/common/ComponentCard";
 import api from "../../utils/api";
 
 const EventDetailPage = () => {
@@ -124,69 +123,88 @@ const EventDetailPage = () => {
         {loading && !error && <p>Loading event...</p>}
 
         {event && !loading && (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSave();
-            }}
-          >
+          <>
+            {/* Organizer actions */}
             <div style={{ marginBottom: "12px" }}>
-              <label>
-                Name:
-                <input
-                  type="text"
-                  value={event.name}
-                  onChange={(e) => handleChange("name", e.target.value)}
-                  style={{ marginLeft: "8px", width: "100%" }}
-                />
-              </label>
+              <Link to={`/event-organizer/events/${eventId}/add-guest`}>
+                Add Guest
+              </Link>
+              {" | "}
+              <Link to={`/event-organizer/events/${eventId}/award-points`}>
+                Award Points
+              </Link>
             </div>
 
-            <div style={{ marginBottom: "12px" }}>
-              <label>
-                Date:
-                <input
-                  type="date"
-                  value={event.date}
-                  onChange={(e) => handleChange("date", e.target.value)}
-                  style={{ marginLeft: "8px" }}
-                />
-              </label>
-            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSave();
+              }}
+            >
+              <div style={{ marginBottom: "12px" }}>
+                <label>
+                  Name:
+                  <input
+                    type="text"
+                    value={event.name}
+                    onChange={(e) =>
+                      handleChange("name", e.target.value)
+                    }
+                    style={{ marginLeft: "8px", width: "100%" }}
+                  />
+                </label>
+              </div>
 
-            <div style={{ marginBottom: "12px" }}>
-              <label>
-                Location:
-                <input
-                  type="text"
-                  value={event.location}
-                  onChange={(e) => handleChange("location", e.target.value)}
-                  style={{ marginLeft: "8px", width: "100%" }}
-                />
-              </label>
-            </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label>
+                  Date:
+                  <input
+                    type="date"
+                    value={event.date}
+                    onChange={(e) =>
+                      handleChange("date", e.target.value)
+                    }
+                    style={{ marginLeft: "8px" }}
+                  />
+                </label>
+              </div>
 
-            <div style={{ marginBottom: "12px" }}>
-              <label>
-                Description:
-                <textarea
-                  value={event.description}
-                  onChange={(e) =>
-                    handleChange("description", e.target.value)
-                  }
-                  style={{
-                    marginTop: "4px",
-                    width: "100%",
-                    minHeight: "80px",
-                  }}
-                />
-              </label>
-            </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label>
+                  Location:
+                  <input
+                    type="text"
+                    value={event.location}
+                    onChange={(e) =>
+                      handleChange("location", e.target.value)
+                    }
+                    style={{ marginLeft: "8px", width: "100%" }}
+                  />
+                </label>
+              </div>
 
-            <button type="submit" disabled={saving}>
-              {saving ? "Saving..." : "Save Changes"}
-            </button>
-          </form>
+              <div style={{ marginBottom: "12px" }}>
+                <label>
+                  Description:
+                  <textarea
+                    value={event.description}
+                    onChange={(e) =>
+                      handleChange("description", e.target.value)
+                    }
+                    style={{
+                      marginTop: "4px",
+                      width: "100%",
+                      minHeight: "80px",
+                    }}
+                  />
+                </label>
+              </div>
+
+              <button type="submit" disabled={saving}>
+                {saving ? "Saving..." : "Save Changes"}
+              </button>
+            </form>
+          </>
         )}
 
         {!event && !loading && !error && <p>Event not found.</p>}
