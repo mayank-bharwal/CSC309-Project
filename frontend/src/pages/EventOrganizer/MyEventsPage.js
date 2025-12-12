@@ -110,7 +110,7 @@ const MyEventsPage = () => {
                       : `${evt.numGuests}/${evt.capacity}`}
                   </td>
                   <td style={{ padding: "8px", borderTop: "1px solid #eee" }}>
-                    <Link to={`/events/${evt.id}`}>View / Edit</Link>
+                    <Link to={`/event-organizer/events/${evt.id}`}>View / Edit</Link>
                   </td>
                 </tr>
               ))}
