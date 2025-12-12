@@ -77,14 +77,6 @@ export const AuthProvider = ({ children }) => {
       }
 
       if (!res.ok) {
-        // Special case: User needs to set password
-        if (res.status === 403 && data.needsPasswordSetup) {
-          const error = new Error(data.message || "Please set your password to activate your account");
-          error.needsPasswordSetup = true;
-          error.resetToken = data.resetToken;
-          error.expiresAt = data.expiresAt;
-          throw error;
-        }
         throw new Error(data.error || "Login failed");
       }
 

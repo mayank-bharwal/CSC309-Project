@@ -25,14 +25,7 @@ const LoginPage = () => {
       await login(utorid, password);
       navigate('/');
     } catch (err) {
-      // Check if user needs to set password
-      if (err.needsPasswordSetup && err.resetToken) {
-        navigate(`/set-password/${err.resetToken}`, {
-          state: { message: err.message },
-        });
-      } else {
-        setError(err.message);
-      }
+      setError(err.message);
     } finally {
       setLoading(false);
     }

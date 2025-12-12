@@ -21,6 +21,7 @@ const UsersListPage = () => {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [actionLoading, setActionLoading] = useState(null);
 
   // Filters
   const [name, setName] = useState(searchParams.get('name') || '');
@@ -77,6 +78,24 @@ const UsersListPage = () => {
     setVerified('');
     setActivated('');
     setPage(1);
+  };
+
+  const handleActivationToggle = async (userId, currentStatus) => {
+    setActionLoading(userId);
+    setError('');
+
+    try {
+      await api.patch(`/users/${userId}`, {
+        activated: !currentStatus,
+      });
+
+      // Refresh the users list
+      await fetchUsers();
+    } catch (err) {
+      setError(err.message || 'Failed to update activation status');
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const columns = [
@@ -136,16 +155,33 @@ const UsersListPage = () => {
     {
       header: 'Actions',
       render: (row) => (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={(e) => {
-            e.stopPropagation();
-            navigate(`/manager/users/${row.id}`);
-          }}
-        >
-          Edit
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/manager/users/${row.id}`);
+            }}
+          >
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant={row.activated ? 'danger' : 'success'}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleActivationToggle(row.id, row.activated);
+            }}
+            disabled={actionLoading === row.id}
+          >
+            {actionLoading === row.id
+              ? 'Loading...'
+              : row.activated
+              ? 'Deactivate'
+              : 'Activate'}
+          </Button>
+        </div>
       ),
     },
   ];
