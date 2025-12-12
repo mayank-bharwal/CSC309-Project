@@ -33,6 +33,7 @@ import PromotionEditPage from './pages/manager/PromotionEditPage';
 import EventsListPage from './pages/manager/EventsListPage';
 import EventCreatePage from './pages/manager/EventCreatePage';
 import EventEditPage from './pages/manager/EventEditPage';
+import AnalyticsDashboard from './pages/manager/AnalyticsDashboard';
 
 
 // Regular Pages
@@ -150,6 +151,14 @@ function App() {
 
               
               {/* Manager Routes */}
+              <Route
+                path="/manager/analytics"
+                element={
+                  <ManagerRoute>
+                    <AnalyticsDashboard />
+                  </ManagerRoute>
+                }
+              />
               <Route
                 path="/manager/users"
                 element={

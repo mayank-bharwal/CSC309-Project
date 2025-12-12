@@ -108,7 +108,7 @@ const RegisterUserPage = () => {
             onChange={handleChange}
             placeholder="user@mail.utoronto.ca"
             required
-            pattern="^[a-zA-Z0-9._%+-]+@mail\.utoronto\.ca$"
+            pattern="[a-zA-Z0-9._%+\-]+@mail\.utoronto\.ca"
             helperText="Must be a valid UofT email address"
           />
 

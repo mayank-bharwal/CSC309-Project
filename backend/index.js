@@ -1149,6 +1149,166 @@ app.post("/auth/resets/:resetToken", async (req, res) => {
   }
 });
 
+// Analytics endpoint for managers/superusers
+app.get("/analytics", jwtMiddleware, requireRole("manager"), async (req, res) => {
+  try {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    // Get user statistics
+    const [
+      totalUsers,
+      verifiedUsers,
+      activeUsersLast7Days,
+      usersByRole,
+      newUsersLast30Days
+    ] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({ where: { verified: true } }),
+      prisma.user.count({ where: { lastLogin: { gte: sevenDaysAgo } } }),
+      prisma.user.groupBy({
+        by: ['role'],
+        _count: { id: true }
+      }),
+      prisma.user.count({ where: { createdAt: { gte: thirtyDaysAgo } } })
+    ]);
+
+    // Get transaction statistics
+    const [
+      totalTransactions,
+      transactionsByType,
+      totalPointsAwarded,
+      totalPointsRedeemed,
+      transactionsLast30Days
+    ] = await Promise.all([
+      prisma.transaction.count(),
+      prisma.transaction.groupBy({
+        by: ['type'],
+        _count: { id: true },
+        _sum: { amount: true }
+      }),
+      prisma.transaction.aggregate({
+        where: { amount: { gt: 0 } },
+        _sum: { amount: true }
+      }),
+      prisma.transaction.aggregate({
+        where: { type: 'redemption' },
+        _sum: { redeemed: true }
+      }),
+      prisma.transaction.count({ where: { createdAt: { gte: thirtyDaysAgo } } })
+    ]);
+
+    // Get daily transactions for the last 30 days
+    const dailyTransactions = await prisma.$queryRaw`
+      SELECT DATE(\"createdAt\") as date, COUNT(*)::int as count, SUM(amount)::int as points
+      FROM "Transaction"
+      WHERE "createdAt" >= ${thirtyDaysAgo}
+      GROUP BY DATE(\"createdAt\")
+      ORDER BY date ASC
+    `;
+
+    // Get promotion statistics
+    const [
+      totalPromotions,
+      activePromotions,
+      promotionRedemptions
+    ] = await Promise.all([
+      prisma.promotion.count(),
+      prisma.promotion.count({
+        where: {
+          startTime: { lte: now },
+          endTime: { gte: now }
+        }
+      }),
+      prisma.userPromotion.count()
+    ]);
+
+    // Get event statistics
+    const [
+      totalEvents,
+      upcomingEvents,
+      totalEventGuests,
+      totalPointsFromEvents
+    ] = await Promise.all([
+      prisma.event.count(),
+      prisma.event.count({ where: { startTime: { gte: now }, published: true } }),
+      prisma.eventGuest.count(),
+      prisma.event.aggregate({ _sum: { pointsAwarded: true } })
+    ]);
+
+    // Get top users by points
+    const topUsersByPoints = await prisma.user.findMany({
+      take: 10,
+      orderBy: { points: 'desc' },
+      select: { id: true, utorid: true, name: true, points: true, role: true }
+    });
+
+    // Get recent transactions
+    const recentTransactions = await prisma.transaction.findMany({
+      take: 10,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        type: true,
+        amount: true,
+        utorid: true,
+        createdAt: true
+      }
+    });
+
+    // Get daily new users for the last 30 days
+    const dailyNewUsers = await prisma.$queryRaw`
+      SELECT DATE(\"createdAt\") as date, COUNT(*)::int as count
+      FROM "User"
+      WHERE "createdAt" >= ${thirtyDaysAgo}
+      GROUP BY DATE(\"createdAt\")
+      ORDER BY date ASC
+    `;
+
+    return res.json({
+      users: {
+        total: totalUsers,
+        verified: verifiedUsers,
+        activeLast7Days: activeUsersLast7Days,
+        newLast30Days: newUsersLast30Days,
+        byRole: usersByRole.reduce((acc, r) => {
+          acc[r.role] = r._count.id;
+          return acc;
+        }, {}),
+        topByPoints: topUsersByPoints,
+        dailyNew: dailyNewUsers
+      },
+      transactions: {
+        total: totalTransactions,
+        last30Days: transactionsLast30Days,
+        totalPointsAwarded: totalPointsAwarded._sum.amount || 0,
+        totalPointsRedeemed: totalPointsRedeemed._sum.redeemed || 0,
+        byType: transactionsByType.reduce((acc, t) => {
+          acc[t.type] = { count: t._count.id, points: t._sum.amount || 0 };
+          return acc;
+        }, {}),
+        recent: recentTransactions,
+        daily: dailyTransactions
+      },
+      promotions: {
+        total: totalPromotions,
+        active: activePromotions,
+        totalRedemptions: promotionRedemptions
+      },
+      events: {
+        total: totalEvents,
+        upcoming: upcomingEvents,
+        totalGuests: totalEventGuests,
+        totalPointsAwarded: totalPointsFromEvents._sum.pointsAwarded || 0
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching analytics:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 app.post("/users", jwtMiddleware, requireRole("cashier"), async (req, res) => {
   try {
     const validation = createUserSchema.safeParse(req.body);
