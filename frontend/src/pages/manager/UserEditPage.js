@@ -27,7 +27,6 @@ const UserEditPage = () => {
   // Form state
   const [email, setEmail] = useState('');
   const [verified, setVerified] = useState(false);
-  const [activated, setActivated] = useState(false);
   const [suspicious, setSuspicious] = useState(false);
   const [role, setRole] = useState('');
 
@@ -42,7 +41,6 @@ const UserEditPage = () => {
         setUser(data);
         setEmail(data.email || '');
         setVerified(data.verified || false);
-        setActivated(data.activated || false);
         setSuspicious(data.suspicious || false);
         setRole(data.role || 'regular');
       } catch (err) {
@@ -63,7 +61,6 @@ const UserEditPage = () => {
     const changes = {};
     if (email !== user.email) changes.email = email;
     if (verified !== user.verified) changes.verified = verified;
-    if (activated !== user.activated) changes.activated = activated;
     if (suspicious !== user.suspicious) changes.suspicious = suspicious;
     if (role !== user.role) changes.role = role;
 
@@ -251,15 +248,6 @@ const UserEditPage = () => {
                         className="w-4 h-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
                       />
                       <span className="text-gray-700 dark:text-gray-300">Verified</span>
-                    </label>
-                    <label className="flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={activated}
-                        onChange={(e) => setActivated(e.target.checked)}
-                        className="w-4 h-4 rounded border-gray-300 text-green-500 focus:ring-green-500"
-                      />
-                      <span className="text-gray-700 dark:text-gray-300">Activated</span>
                     </label>
                     <label className="flex items-center gap-3">
                       <input

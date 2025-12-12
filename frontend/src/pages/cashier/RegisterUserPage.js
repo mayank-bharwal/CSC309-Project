@@ -35,7 +35,11 @@ const RegisterUserPage = () => {
     try {
       const response = await api.post('/users', formData);
       setSuccess(
-        `User created successfully! Reset token: ${response.resetToken}. The user can use this token to set their password.`
+        `User created successfully! ${
+          response.emailSent
+            ? 'Activation email sent to ' + formData.email
+            : 'User can activate by visiting the login page with their UTORid.'
+        }`
       );
 
       // Reset form
