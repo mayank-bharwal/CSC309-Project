@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import SignIn from "./pages/AuthPages/SignUp";
+import SignIn from "./pages/AuthPages/SignIn";
 import SignUp from "./pages/AuthPages/SignUp";
 import NotFound from "./pages/OtherPage/NotFound";
 import UserProfiles from "./pages/UserProfiles";
@@ -25,11 +25,6 @@ import QRCodePage from "./pages/Regular/QRCodePage";
 import RedemptionReq from "./pages/Regular/RedemptionReq";
 import TransferPage from "./pages/Regular/TransferPoints";
 
-import MyEventsPage from "./pages/EventOrganizer/MyEventsPage";
-import EventDetailPage from "./pages/EventOrganizer/EventDetailPage";
-import AddGuestPage from "./pages/EventOrganizer/AddGuestPage";
-import AwardPointsPage from "./pages/EventOrganizer/AwardPointsPage";
-
 export default function App() {
   return (
     <Router>
@@ -45,10 +40,7 @@ export default function App() {
           <Route path="/qrcode" element={<QRCodePage />} />
           <Route path="/redeem" element={<RedemptionReq />} />
           <Route path="/transfer" element={<TransferPage />} />
-          <Route path="/my-events" element={<MyEventsPage />} />
-          <Route path="/events/:eventId" element={<EventDetailPage />} />
-          <Route path="/events/:eventId/add-guest" element={<AddGuestPage />} />
-          <Route path="/events/:eventId/award-points" element={<AwardPointsPage />} />
+          
 
           {/* Template pages */}
           <Route path="/profile" element={<UserProfiles />} />
