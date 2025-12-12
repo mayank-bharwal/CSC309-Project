@@ -82,7 +82,16 @@ const SetPasswordPage = () => {
         body: JSON.stringify({ utorid, password }),
       });
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        // If JSON parsing fails, the response body might be empty
+        if (!response.ok) {
+          throw new Error('Failed to set password. Please try again.');
+        }
+        data = {};
+      }
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to set password');
