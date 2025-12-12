@@ -14,6 +14,7 @@ import ChatWidget from './components/chat/ChatWidget';
 import LoginPage from './pages/auth/LoginPage';
 import OAuthCallbackPage from './pages/auth/OAuthCallbackPage';
 import SetPasswordPage from './pages/auth/SetPasswordPage';
+import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 
 // Dashboard
 import Dashboard from './pages/Dashboard';
@@ -126,6 +127,7 @@ function App() {
           <Routes>
             {/* Auth Routes */}
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/auth/callback" element={<OAuthCallbackPage />} />
             <Route path="/set-password" element={<SetPasswordPage />} />
 
