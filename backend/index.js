@@ -955,11 +955,9 @@ app.post("/users", jwtMiddleware, requireRole("cashier"), async (req, res) => {
       },
     });
 
-    // Try to send activation email (fire-and-forget, don't block response)
+    // Try to send activation email
     const { sendActivationEmail } = require('./utils/emailSender');
-    sendActivationEmail(user, resetToken).catch(err => {
-      console.error('Background email send failed:', err);
-    });
+    const emailResult = await sendActivationEmail(user, resetToken);
 
     return res.status(201).json({
       id: user.id,
@@ -968,8 +966,10 @@ app.post("/users", jwtMiddleware, requireRole("cashier"), async (req, res) => {
       email: user.email,
       verified: user.verified,
       expiresAt: user.expiresAt,
-      emailSent: false,  // Always false since we don't wait for email
-      message: "User created. User can activate by visiting the login page with their UTORid.",
+      emailSent: emailResult.success,
+      message: emailResult.success
+        ? "User created and activation email sent!"
+        : "User created. Email failed to send - user can activate via login page.",
     });
   } catch (error) {
     console.error("Error creating user:", error);
