@@ -16,7 +16,6 @@ const AppSidebar = () => {
     [location.pathname]
   );
 
-  const role = user?.role;
 
   // Memoize nav items to prevent recreation on every render
   const navItems = useMemo(() => {
@@ -106,7 +105,6 @@ const AppSidebar = () => {
     }
 
     // Regular user items
-    if (role === "regular") {
     items.push({
       name: "Points",
       path: "/regular/points",
@@ -200,7 +198,7 @@ const AppSidebar = () => {
         </svg>
       ),
     });
-  }
+  
 
     return items;
   }, [isManager]);
