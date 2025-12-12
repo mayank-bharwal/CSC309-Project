@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import PageMeta from "../../components/common/PageMeta";
+import PageBreadcrumb from "../../components/common/PageBreadcrumb";
 import ComponentCard from "../../components/common/ComponentCard";
 import Table from "../../components/common/Table";
 import Pagination from "../../components/common/Pagination";
@@ -14,48 +15,41 @@ import api from "../../utils/api";
 const ListPromotionsPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // API data
   const [promotions, setPromotions] = useState([]);
   const [total, setTotal] = useState(0);
 
-  // State
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Filters (loaded from URL)
   const [name, setName] = useState(searchParams.get("name") || "");
   const [type, setType] = useState(searchParams.get("type") || "");
   const [page, setPage] = useState(Number(searchParams.get("page")) || 1);
-  const [limit] = useState(10);
 
-  // Fetch promotions for Regular user
-  const fetchPromotions = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const limit = 10;
 
-    try {
-      const params = { page, limit };
-      if (name) params.name = name;
-      if (type) params.type = type;
-
-      // Regular user sees ACTIVE promotions only
-      const data = await api.get("/promotions", params);
-
-      setPromotions(data.results);
-      setTotal(data.count);
-    } catch (err) {
-      setError(err.message || "Failed to load promotions.");
-    } finally {
-      setLoading(false);
-    }
-  }, [page, limit, name, type]);
-
-  // Fetch on load + filter changes
   useEffect(() => {
-    fetchPromotions();
-  }, [fetchPromotions]);
+    const fetchPromotions = async () => {
+      setLoading(true);
+      setError("");
 
-  // Sync URL query parameters
+      try {
+        const params = { page, limit };
+        if (name) params.name = name;
+        if (type) params.type = type;
+
+        const data = await api.get("/promotions", params);
+        setPromotions(data.results);
+        setTotal(data.count);
+      } catch (err) {
+        setError(err.message || "Failed to load promotions.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPromotions();
+  }, [page, name, type]);
+
   useEffect(() => {
     const params = new URLSearchParams();
     if (name) params.set("name", name);
@@ -67,7 +61,6 @@ const ListPromotionsPage = () => {
   const handleSearch = (e) => {
     e.preventDefault();
     setPage(1);
-    fetchPromotions();
   };
 
   const handleReset = () => {
@@ -76,22 +69,17 @@ const ListPromotionsPage = () => {
     setPage(1);
   };
 
-  // Active promotions badge logic
-  const getStatusBadge = (promo) => {
-    const now = new Date();
-    const end = new Date(promo.endTime);
-    if (end < now) return <Badge variant="default">Ended</Badge>;
-    return <Badge variant="success">Active</Badge>;
-  };
-
-  // Table columns for Regular User
   const columns = [
     {
       header: "Name",
       render: (row) => (
         <div>
-          <p className="font-medium text-gray-800 dark:text-white">{row.name}</p>
-          <p className="text-xs text-gray-500">ID: {row.id}</p>
+          <p className="font-medium text-gray-900 dark:text-white">
+            {row.name}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            ID: {row.id}
+          </p>
         </div>
       ),
     },
@@ -105,31 +93,26 @@ const ListPromotionsPage = () => {
     },
     {
       header: "Ends On",
-      render: (row) => (
-        <p>{new Date(row.endTime).toLocaleDateString()}</p>
-      ),
+      render: (row) =>
+        new Date(row.endTime).toLocaleDateString(),
     },
     {
       header: "Details",
       render: (row) => (
-        <div className="text-sm">
-          {row.minSpending && <p>Min Spend: ${row.minSpending}</p>}
-          {row.rate && <p>Rate: +{row.rate}x pts</p>}
-          {row.points && <p>Points: {row.points}</p>}
+        <div className="text-sm text-gray-700 dark:text-gray-300">
+          {row.minSpending && <p>Min spend: ${row.minSpending}</p>}
+          {row.rate && <p>Rate: {row.rate}x points</p>}
+          {row.points && <p>Bonus points: {row.points}</p>}
         </div>
       ),
-    },
-    {
-      header: "Status",
-      render: (row) => getStatusBadge(row),
     },
   ];
 
   return (
     <>
       <PageMeta title="Available Promotions" />
+      <PageBreadcrumb pageTitle="Available Promotions" />
 
-      {/* Filters */}
       <ComponentCard title="Filters" className="mb-6">
         <form onSubmit={handleSearch} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -144,22 +127,31 @@ const ListPromotionsPage = () => {
               value={type}
               onChange={(e) => setType(e.target.value)}
               options={[
-                { value: "", label: "All Types" },
+                { value: "", label: "All types" },
                 { value: "automatic", label: "Automatic" },
                 { value: "one-time", label: "One-time" },
               ]}
             />
           </div>
+
           <div className="flex gap-3">
-            <button type="submit" className="btn btn-primary">Search</button>
-            <button type="button" className="btn btn-secondary" onClick={handleReset}>
+            <button
+              type="submit"
+              className="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700"
+            >
+              Search
+            </button>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="px-4 py-2 rounded-md border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
               Reset
             </button>
           </div>
         </form>
       </ComponentCard>
 
-      {/* Promotions Table */}
       <ComponentCard title={`Promotions (${total})`}>
         {error && <Alert type="error">{error}</Alert>}
 
@@ -167,10 +159,7 @@ const ListPromotionsPage = () => {
           <Loading className="py-12" />
         ) : (
           <>
-            <Table
-              columns={columns}
-              data={promotions}
-            />
+            <Table columns={columns} data={promotions} />
             <Pagination
               page={page}
               limit={limit}

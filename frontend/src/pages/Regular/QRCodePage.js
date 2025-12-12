@@ -41,12 +41,17 @@ const QRCodePage = () => {
         {error ? (
           <p className="text-red-600 text-sm">{error}</p>
         ) : !user ? (
-          <p className="text-gray-500 text-sm">Loading...</p>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">
+            Loading...
+          </p>
         ) : (
-          <div className="flex flex-col items-center gap-4 py-6">
-            <QRCodeSVG value={qrPayload} size={220} level="H" />
-            <p className="text-gray-600 text-sm">
-              User ID encoded: <b>{user.id}</b>
+          <div className="flex flex-col items-center py-8">
+            <div className="bg-white p-4 rounded-xl shadow-sm">
+              <QRCodeSVG value={qrPayload} size={220} level="H" />
+            </div>
+
+            <p className="mt-4 text-sm text-gray-600 dark:text-gray-400 text-center max-w-sm">
+              Show this code to a cashier to earn, transfer, or redeem points.
             </p>
           </div>
         )}

@@ -22,12 +22,14 @@ const PastTransactionPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // FILTERS — from URL params
+  // FILTERS
   const [type, setType] = useState(searchParams.get("type") || "");
   const [amount, setAmount] = useState(searchParams.get("amount") || "");
   const [operator, setOperator] = useState(searchParams.get("operator") || "");
+  const [order, setOrder] = useState(searchParams.get("order") || "desc");
   const [page, setPage] = useState(Number(searchParams.get("page")) || 1);
-  const [limit] = useState(10);
+
+  const limit = 10;
 
   // FETCH TRANSACTIONS
   const fetchTransactions = useCallback(async () => {
@@ -37,48 +39,56 @@ const PastTransactionPage = () => {
     try {
       const params = { page, limit };
       if (type) params.type = type;
-      if (amount) params.amount = amount;
-      if (operator) params.operator = operator;
+      if (amount && operator) {
+        params.amount = amount;
+        params.operator = operator;
+      }
 
       const data = await api.get("/users/me/transactions", params);
 
-      setTransactions(data.results);
+      const results =
+        order === "asc"
+          ? [...data.results].reverse()
+          : data.results;
+
+      setTransactions(results);
       setTotal(data.count);
     } catch (err) {
       setError(err.message || "Failed to load transactions.");
     } finally {
       setLoading(false);
     }
-  }, [type, amount, operator, page, limit]);
+  }, [type, amount, operator, order, page]);
 
   useEffect(() => {
     fetchTransactions();
   }, [fetchTransactions]);
 
-  // UPDATE URL
+  // UPDATE URL PARAMS
   useEffect(() => {
     const params = new URLSearchParams();
     if (type) params.set("type", type);
     if (amount) params.set("amount", amount);
     if (operator) params.set("operator", operator);
+    if (order !== "desc") params.set("order", order);
     if (page > 1) params.set("page", page);
     setSearchParams(params);
-  }, [type, amount, operator, page, setSearchParams]);
+  }, [type, amount, operator, order, page, setSearchParams]);
 
   const handleSearch = (e) => {
     e.preventDefault();
     setPage(1);
-    fetchTransactions();
   };
 
   const handleReset = () => {
     setType("");
     setAmount("");
     setOperator("");
+    setOrder("desc");
     setPage(1);
   };
 
-  // BADGE COLOR STYLES PER TRANSACTION TYPE
+  // TYPE BADGES
   const getTypeBadge = (t) => {
     const map = {
       purchase: "green",
@@ -99,41 +109,54 @@ const PastTransactionPage = () => {
     {
       header: "Amount",
       render: (row) => (
-        <p className={row.amount < 0 ? "text-red-600" : "text-green-600"}>
-          {row.amount}
-        </p>
+        <span
+          className={
+            row.amount < 0
+              ? "text-red-600 dark:text-red-400 font-medium"
+              : "text-green-600 dark:text-green-400 font-medium"
+          }
+        >
+          {row.amount > 0 ? `+${row.amount}` : row.amount}
+        </span>
       ),
     },
     {
       header: "Related User",
       render: (row) =>
         row.relatedId ? (
-          <p className="text-sm text-gray-700">
-            User ID: <strong>{row.relatedId}</strong>
-          </p>
+          <span className="text-sm text-gray-700 dark:text-gray-300">
+            User ID {row.relatedId}
+          </span>
         ) : (
-          "-"
+          <span className="text-gray-400">—</span>
         ),
     },
     {
       header: "Created By",
-      render: (row) => <p className="text-sm">{row.createdBy}</p>,
-    },
-    {
-      header: "Promotion IDs",
       render: (row) => (
-        <p className="text-xs text-gray-600">
-          {row.promotionIds?.length ? row.promotionIds.join(", ") : "-"}
-        </p>
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {row.createdBy}
+        </span>
       ),
     },
     {
-      header: "Date",
+      header: "Promotions",
       render: (row) =>
-        new Date(row.createdAt).toLocaleString("en-CA", {
-          dateStyle: "medium",
-          timeStyle: "short",
-        }),
+        row.promotionIds.length ? (
+          <span className="text-xs text-gray-600 dark:text-gray-400">
+            {row.promotionIds.join(", ")}
+          </span>
+        ) : (
+          <span className="text-gray-400">—</span>
+        ),
+    },
+    {
+      header: "Reference",
+      render: (row) => (
+        <span className="text-sm text-gray-500">
+          Transaction #{row.id}
+        </span>
+      ),
     },
   ];
 
@@ -152,8 +175,8 @@ const PastTransactionPage = () => {
                 { value: "", label: "All" },
                 { value: "purchase", label: "Purchase" },
                 { value: "transfer", label: "Transfer" },
-                { value: "adjustment", label: "Adjustment" },
                 { value: "redemption", label: "Redemption" },
+                { value: "adjustment", label: "Adjustment" },
                 { value: "event", label: "Event" },
               ]}
             />
@@ -163,7 +186,7 @@ const PastTransactionPage = () => {
               type="number"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              placeholder="e.g., 50"
+              placeholder="e.g. 50"
             />
 
             <Select
@@ -172,8 +195,18 @@ const PastTransactionPage = () => {
               onChange={(e) => setOperator(e.target.value)}
               options={[
                 { value: "", label: "None" },
-                { value: "gte", label: ">= (greater than or equal)" },
-                { value: "lte", label: "<= (less than or equal)" },
+                { value: "gte", label: "≥" },
+                { value: "lte", label: "≤" },
+              ]}
+            />
+
+            <Select
+              label="Order"
+              value={order}
+              onChange={(e) => setOrder(e.target.value)}
+              options={[
+                { value: "desc", label: "Newest first" },
+                { value: "asc", label: "Oldest first" },
               ]}
             />
           </div>

@@ -23,16 +23,31 @@ const PointsPage = () => {
 
   return (
     <>
-      <PageMeta title="Available Points" />
-      <PageBreadcrumb pageTitle="Available Points" />
+      <PageMeta title="Points" description="View your current points balance" />
+      <PageBreadcrumb pageTitle="Points" />
 
       <ComponentCard title="Available Points" desc="Your current balance">
-        {error ? (
-          <p className="text-red-600 text-sm">{error}</p>
-        ) : points === null ? (
-          <p className="text-gray-500 text-sm">Loading...</p>
-        ) : (
-          <p className="text-4xl font-bold">{points}</p>
+        {error && (
+          <p className="text-sm font-medium text-red-600 dark:text-red-400">
+            {error}
+          </p>
+        )}
+
+        {points === null && !error && (
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Loading points...
+          </p>
+        )}
+
+        {points !== null && !error && (
+          <div className="mt-2">
+            <p className="text-4xl font-bold text-gray-900 dark:text-white">
+              {points}
+            </p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Total available points
+            </p>
+          </div>
         )}
       </ComponentCard>
     </>

@@ -17,7 +17,6 @@ const EventsDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Load event details
   useEffect(() => {
     const fetchEvent = async () => {
       try {
@@ -33,7 +32,9 @@ const EventsDetailPage = () => {
     fetchEvent();
   }, [eventId]);
 
-  if (loading) return <Loading className="py-10" />;
+  if (loading) {
+    return <Loading className="py-10" />;
+  }
 
   if (error) {
     return (
@@ -44,7 +45,7 @@ const EventsDetailPage = () => {
     );
   }
 
-  // Prepare QR Payload
+  // QR payload used by manager/cashier to RSVP the user
   const qrPayload = JSON.stringify({
     type: "event",
     eventId: Number(eventId),
@@ -54,14 +55,13 @@ const EventsDetailPage = () => {
   return (
     <>
       <PageMeta title={event.name} />
-
       <PageBreadcrumb pageTitle={event.name} />
 
       <ComponentCard title="Event Information">
         <div className="space-y-4 text-gray-700 dark:text-gray-300">
-          
           <p>
-            <strong>Description:</strong> {event.description || "No description"}
+            <strong>Description:</strong>{" "}
+            {event.description || "No description"}
           </p>
 
           <p>
@@ -79,7 +79,8 @@ const EventsDetailPage = () => {
           </p>
 
           <p>
-            <strong>Capacity:</strong> {event.capacity ?? "Unlimited"}
+            <strong>Capacity:</strong>{" "}
+            {event.capacity ?? "Unlimited"}
           </p>
 
           <p>
@@ -90,27 +91,33 @@ const EventsDetailPage = () => {
             <strong>Organizers:</strong>
             <ul className="list-disc ml-6 mt-1">
               {event.organizers.map((org) => (
-                <li key={org.id}>{org.name} ({org.utorid})</li>
+                <li key={org.id}>
+                  {org.name} ({org.utorid})
+                </li>
               ))}
             </ul>
           </div>
         </div>
       </ComponentCard>
 
-      {/* QR Code for Manager/Organizer RSVP + Attendance */}
+      {/* QR Code for RSVP by Manager/Cashier */}
       <ComponentCard
-        title="Event QR Code"
-        desc="Show this QR code to a manager or event organizer to RSVP and confirm your attendance."
+        title="Event RSVP QR Code"
+        desc="Show this QR code to a manager or event organizer to RSVP."
       >
-        <div className="flex flex-col items-center py-6">
-          <QRCodeSVG value={qrPayload} size={220} level="H" />
+        <div className="flex flex-col items-center gap-4 py-6">
+          {/* QR Card */}
+          <div className="bg-white p-4 rounded-xl shadow-md">
+            <QRCodeSVG value={qrPayload} size={220} level="H" />
+          </div>
 
-          <p className="text-gray-600 text-sm mt-4">
-            Event ID: <b>{eventId}</b>
+          {/* Meta text */}
+          <p className="text-sm text-gray-400">
+            Event ID: <span className="font-medium text-gray-300">{eventId}</span>
           </p>
 
-          <p className="text-gray-500 text-xs mt-2 text-center">
-            This QR allows event staff to RSVP you and award points.
+          <p className="text-xs text-gray-500 text-center max-w-sm">
+            A manager or cashier must scan this code to complete your RSVP.
           </p>
         </div>
       </ComponentCard>

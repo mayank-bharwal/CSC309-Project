@@ -3,10 +3,20 @@ import PageMeta from '../components/common/PageMeta';
 import PageBreadcrumb from '../components/common/PageBreadcrumb';
 import ComponentCard from '../components/common/ComponentCard';
 import { Link } from 'react-router-dom';
+import RegularDashboard from './Regular/RegularDashboard';
+import CashierDashboard from "./cashier/CashierDashboard";
 
 const Dashboard = () => {
   const { user, isManager } = useAuth();
 
+  if (user.role === "regular") {
+  return <RegularDashboard user={user} />;
+  }
+
+  if (user.role === "cashier") {
+  return <CashierDashboard />;
+  }
+  
   const managerStats = [
     {
       title: 'Users',
@@ -117,6 +127,7 @@ const Dashboard = () => {
         </div>
       )}
 
+      
       {/* User Info Card */}
       <ComponentCard title="Account Information" desc="Your profile details">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
