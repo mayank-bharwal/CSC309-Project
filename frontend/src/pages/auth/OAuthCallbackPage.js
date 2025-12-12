@@ -46,6 +46,12 @@ const OAuthCallbackPage = () => {
           throw new Error(data.error || 'OAuth authentication failed');
         }
 
+        // Check if user needs to set password
+        if (data.needsPasswordSetup) {
+          navigate(`/set-password?token=${data.resetToken}&utorid=${data.utorid}`);
+          return;
+        }
+
         // Store token and redirect
         localStorage.setItem('authToken', data.token);
 

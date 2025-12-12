@@ -22,8 +22,13 @@ const LoginPage = () => {
     setLoading(true);
 
     try {
-      await login(utorid, password);
-      navigate('/');
+      const result = await login(utorid, password);
+
+      if (result && result.needsPasswordSetup) {
+        navigate(`/set-password?token=${result.resetToken}&utorid=${result.utorid}`);
+      } else {
+        navigate('/');
+      }
     } catch (err) {
       setError(err.message);
     } finally {

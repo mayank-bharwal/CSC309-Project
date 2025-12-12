@@ -13,6 +13,7 @@ import ChatWidget from './components/chat/ChatWidget';
 // Auth Pages
 import LoginPage from './pages/auth/LoginPage';
 import OAuthCallbackPage from './pages/auth/OAuthCallbackPage';
+import SetPasswordPage from './pages/auth/SetPasswordPage';
 
 // Dashboard
 import Dashboard from './pages/Dashboard';
@@ -125,6 +126,7 @@ function App() {
             {/* Auth Routes */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/auth/callback" element={<OAuthCallbackPage />} />
+            <Route path="/set-password" element={<SetPasswordPage />} />
 
             {/* Dashboard Layout */}
             <Route element={<AppLayout />}>
