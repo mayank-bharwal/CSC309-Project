@@ -602,9 +602,19 @@ app.post("/auth/tokens", async (req, res) => {
     }
 
     if (!user.password) {
-      return res.status(401).json({
-        error: "Invalid credentials",
-      });
+      // Check if user has valid reset token for first-time setup
+      if (user.resetToken && user.expiresAt && new Date() < user.expiresAt) {
+        return res.status(403).json({
+          needsPasswordSetup: true,
+          resetToken: user.resetToken,
+          expiresAt: user.expiresAt,
+          message: "Please set your password to activate your account",
+        });
+      } else {
+        return res.status(410).json({
+          error: "Account setup link expired. Please contact support.",
+        });
+      }
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -884,6 +894,7 @@ app.post("/auth/resets/:resetToken", async (req, res) => {
         password: hashedPassword,
         resetToken: null,
         expiresAt: null,
+        activated: true,
       },
     });
 
@@ -944,6 +955,10 @@ app.post("/users", jwtMiddleware, requireRole("cashier"), async (req, res) => {
       },
     });
 
+    // Try to send activation email
+    const { sendActivationEmail } = require('./utils/emailSender');
+    const emailResult = await sendActivationEmail(user, resetToken);
+
     return res.status(201).json({
       id: user.id,
       utorid: user.utorid,
@@ -951,7 +966,10 @@ app.post("/users", jwtMiddleware, requireRole("cashier"), async (req, res) => {
       email: user.email,
       verified: user.verified,
       expiresAt: user.expiresAt,
-      resetToken: user.resetToken,
+      emailSent: emailResult.success,
+      message: emailResult.success
+        ? "User created and activation email sent!"
+        : "User created. Email failed to send - user can activate via login page.",
     });
   } catch (error) {
     console.error("Error creating user:", error);
