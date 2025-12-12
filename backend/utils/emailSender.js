@@ -132,13 +132,7 @@ If you didn't request this account, please ignore this email.
   };
 
   try {
-    // Add 10-second timeout to prevent hanging
-    await Promise.race([
-      transporter.sendMail(mailOptions),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Email timeout after 10s')), 10000)
-      )
-    ]);
+    await transporter.sendMail(mailOptions);
     console.log(`✅ Activation email sent to ${user.email}`);
     return { success: true };
   } catch (error) {
