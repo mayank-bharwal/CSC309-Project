@@ -939,6 +939,7 @@ app.post("/users", jwtMiddleware, requireRole("cashier"), async (req, res) => {
         resetToken,
         expiresAt,
         verified: false,
+        activated: false,
         role: "regular",
       },
     });
@@ -977,12 +978,7 @@ app.get("/users", jwtMiddleware, requireRole("manager"), async (req, res) => {
     }
 
     if (activated !== undefined) {
-      const isActivated = activated === "true" || activated === true;
-      if (isActivated) {
-        where.lastLogin = { not: null };
-      } else {
-        where.lastLogin = null;
-      }
+      where.activated = activated === "true" || activated === true;
     }
 
     const pageNum = page ? parseInt(page, 10) : 1;
@@ -1321,6 +1317,7 @@ app.get(
           createdAt: user.createdAt,
           lastLogin: user.lastLogin,
           verified: user.verified,
+          activated: user.activated,
           avatarUrl: user.avatarUrl,
           promotions: availablePromotions,
         });
@@ -1354,9 +1351,9 @@ app.patch(
         return res.status(400).json({ error: "Invalid user ID" });
       }
 
-      const { email, verified, suspicious, role } = req.body;
+      const { email, verified, suspicious, role, activated } = req.body;
 
-      const allowedFields = ["email", "verified", "suspicious", "role"];
+      const allowedFields = ["email", "verified", "suspicious", "role", "activated"];
       const bodyKeys = Object.keys(req.body);
       const invalidFields = bodyKeys.filter(
         (key) => !allowedFields.includes(key)
@@ -1430,6 +1427,31 @@ app.patch(
         }
 
         updateData.role = role;
+      }
+
+      if (activated !== undefined && activated !== null) {
+        if (typeof activated !== "boolean") {
+          return res.status(400).json({ error: "Activated must be a boolean" });
+        }
+
+        // Check role hierarchy: users can only activate users with lower roles
+        const currentUserRole = req.user.role;
+        const targetUserRole = role !== undefined ? role : existingUser.role;
+
+        const roleHierarchy = {
+          regular: 0,
+          cashier: 1,
+          manager: 2,
+          superuser: 3,
+        };
+
+        if (roleHierarchy[targetUserRole] >= roleHierarchy[currentUserRole]) {
+          return res.status(403).json({
+            error: "You can only activate users with lower roles than yours",
+          });
+        }
+
+        updateData.activated = activated;
       }
 
       if (Object.keys(updateData).length === 0) {

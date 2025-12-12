@@ -42,6 +42,7 @@ const AppSidebar = () => {
         ),
         name: 'Cashier',
         subItems: [
+          { name: 'Register User', path: '/cashier/register-user' },
           { name: 'Create Transaction', path: '/cashier/create-transaction' },
           { name: 'Process Redemption', path: '/cashier/process-redemption' },
         ],
