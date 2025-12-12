@@ -1,26 +1,15 @@
-let nodemailer;
-try {
-  nodemailer = require('nodemailer');
-} catch (err) {
-  console.warn('⚠️  nodemailer package not found. Email features will be disabled.');
-}
+const nodemailer = require('nodemailer');
 
 // Create email transporter
 // If SMTP credentials are not configured, emails will fail gracefully
 const createTransporter = () => {
-  // Check if nodemailer is available
-  if (!nodemailer || typeof nodemailer.createTransport !== 'function') {
-    console.warn('⚠️  nodemailer not available. Email features disabled.');
-    return null;
-  }
-
   // Check if email is configured
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER) {
     console.warn('⚠️  Email not configured. Set SMTP_HOST, SMTP_USER, and SMTP_PASS in .env');
     return null;
   }
 
-  return nodemailer.createTransport({
+  return nodemailer.createTransporter({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT) || 587,
     secure: false, // true for 465, false for other ports
