@@ -48,6 +48,7 @@ import UnprocessedRedemptionPage from './pages/Regular/UnprocessedQRPage';
 // Cashier Pages
 import CreateTransactionPage from './pages/cashier/CreateTransactionPage';
 import ProcessRedemptionPage from './pages/cashier/ProcessRedemptionPage';
+import RegisterUserPage from './pages/cashier/RegisterUserPage';
 
 // Protected Route for Manager
 const ManagerRoute = ({ children }) => {
@@ -242,6 +243,14 @@ function App() {
                 element={
                   <CashierRoute>
                     <ProcessRedemptionPage />
+                  </CashierRoute>
+                }
+              />
+              <Route
+                path="/cashier/register-user"
+                element={
+                  <CashierRoute>
+                    <RegisterUserPage />
                   </CashierRoute>
                 }
               />

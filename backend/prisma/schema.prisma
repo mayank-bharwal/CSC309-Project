@@ -37,6 +37,7 @@ model User {
   role           RoleType        @default(regular)
   points         Int             @default(0)
   verified       Boolean         @default(false)
+  activated      Boolean         @default(false)
   suspicious     Boolean         @default(false)
   resetToken     String?         @unique
   expiresAt      DateTime?
