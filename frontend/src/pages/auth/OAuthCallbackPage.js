@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth0 } from '@auth0/auth0-react';
 import { useAuth } from '../../context/AuthContext';
@@ -8,36 +8,41 @@ const OAuthCallbackPage = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth0();
+  const { isAuthenticated, isLoading: auth0Loading, user: auth0User } = useAuth0();
   const { setToken, setUser } = useAuth();
+  const hasProcessed = useRef(false);
 
   useEffect(() => {
     const handleCallback = async () => {
+      // Prevent double processing
+      if (hasProcessed.current) return;
+
+      // Wait for Auth0 to finish loading
+      if (auth0Loading) return;
+
+      // Check if Auth0 authentication succeeded
+      if (!isAuthenticated || !auth0User) {
+        setError('Authentication failed. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      hasProcessed.current = true;
+
       try {
-        if (!isAuthenticated) {
-          setError('Authentication failed');
-          setLoading(false);
-          return;
-        }
-
-        // Get authorization code from URL
-        const urlParams = new URLSearchParams(window.location.search);
-        const code = urlParams.get('code');
-
-        if (!code) {
-          setError('Authorization code not found');
-          setLoading(false);
-          return;
-        }
-
-        // Exchange code for our backend token
+        // Send Auth0 user info to our backend
         const API_URL = process.env.REACT_APP_API_URL || '';
-        const res = await fetch(`${API_URL}/auth/oauth/callback`, {
+        const res = await fetch(`${API_URL}/auth/oauth/token`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ code }),
+          body: JSON.stringify({
+            email: auth0User.email,
+            sub: auth0User.sub,
+            emailVerified: auth0User.email_verified,
+            name: auth0User.name
+          }),
         });
 
         const data = await res.json();
@@ -46,7 +51,7 @@ const OAuthCallbackPage = () => {
           throw new Error(data.error || 'OAuth authentication failed');
         }
 
-        // Check if user needs to set password
+        // Check if user needs to set password first
         if (data.needsPasswordSetup) {
           navigate(`/set-password?token=${data.resetToken}&utorid=${data.utorid}`);
           return;
@@ -63,13 +68,12 @@ const OAuthCallbackPage = () => {
       } catch (err) {
         console.error('OAuth callback error:', err);
         setError(err.message);
-      } finally {
         setLoading(false);
       }
     };
 
     handleCallback();
-  }, [isAuthenticated, navigate, setToken, setUser]);
+  }, [isAuthenticated, auth0Loading, auth0User, navigate, setToken, setUser]);
 
   if (loading) {
     return (

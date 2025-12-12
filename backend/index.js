@@ -55,47 +55,56 @@ const emailTransporter = process.env.EMAIL_USER && process.env.EMAIL_PASS
   ? createEmailTransporter()
   : null;
 
-async function sendActivationEmail(user, resetToken) {
+function sendActivationEmail(user, resetToken) {
+  const activationLink = `${process.env.FRONTEND_URL || 'http://localhost:3001'}/set-password?token=${resetToken}&utorid=${user.utorid}`;
+
+  // Always log the activation link to console (for admin/development use)
+  console.log('\n' + '='.repeat(70));
+  console.log('ACTIVATION LINK FOR USER:', user.utorid);
+  console.log('Email:', user.email);
+  console.log('Link:', activationLink);
+  console.log('Token:', resetToken);
+  console.log('='.repeat(70) + '\n');
+
+  // If email is not configured, we're done (link is logged above)
   if (!emailTransporter) {
-    console.log('Email service not configured. Skipping activation email.');
+    console.log('Email service not configured. Share the link above manually.');
     return;
   }
 
-  try {
-    const activationLink = `${process.env.FRONTEND_URL || 'http://localhost:3001'}/set-password?token=${resetToken}&utorid=${user.utorid}`;
-
-    await emailTransporter.sendMail({
-      from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
-      to: user.email,
-      subject: 'Activate Your Loyalty Program Account',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #4F46E5;">Welcome to Loyalty Program!</h2>
-          <p>Hello ${user.name},</p>
-          <p>Your account has been created. To activate your account and set your password, please click the link below:</p>
-          <p style="margin: 30px 0;">
-            <a href="${activationLink}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-              Set Your Password
-            </a>
-          </p>
-          <p style="color: #666; font-size: 14px;">
-            Or copy and paste this link in your browser:<br>
-            <a href="${activationLink}">${activationLink}</a>
-          </p>
-          <p style="color: #666; font-size: 14px;">
-            This link will expire in 7 days.
-          </p>
-          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-          <p style="color: #999; font-size: 12px;">
-            If you didn't request this account, please ignore this email.
-          </p>
-        </div>
-      `,
-    });
+  // Send email asynchronously (fire-and-forget, don't block)
+  emailTransporter.sendMail({
+    from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+    to: user.email,
+    subject: 'Activate Your Loyalty Program Account',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #4F46E5;">Welcome to Loyalty Program!</h2>
+        <p>Hello ${user.name},</p>
+        <p>Your account has been created. To activate your account and set your password, please click the link below:</p>
+        <p style="margin: 30px 0;">
+          <a href="${activationLink}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+            Set Your Password
+          </a>
+        </p>
+        <p style="color: #666; font-size: 14px;">
+          Or copy and paste this link in your browser:<br>
+          <a href="${activationLink}">${activationLink}</a>
+        </p>
+        <p style="color: #666; font-size: 14px;">
+          This link will expire in 7 days.
+        </p>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+        <p style="color: #999; font-size: 12px;">
+          If you didn't request this account, please ignore this email.
+        </p>
+      </div>
+    `,
+  }).then(() => {
     console.log(`Activation email sent to ${user.email}`);
-  } catch (error) {
-    console.error('Error sending activation email:', error);
-  }
+  }).catch((error) => {
+    console.error('Error sending activation email:', error.message);
+  });
 }
 
 async function sendPasswordResetEmail(user, resetToken) {
@@ -918,6 +927,108 @@ app.post("/auth/oauth/callback", async (req, res) => {
     return res.status(500).json({
       error: "OAuth authentication failed",
       details: error.message,
+    });
+  }
+});
+
+// New OAuth Token Handler - uses Auth0 user info instead of authorization code
+app.post("/auth/oauth/token", async (req, res) => {
+  try {
+    const { email, sub, emailVerified } = req.body;
+
+    // Validate required fields
+    if (!email || !sub) {
+      return res.status(400).json({ error: "Email and sub are required" });
+    }
+
+    // Find user by email
+    let user = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        error: "Account not found. Please contact a cashier to create your account first.",
+      });
+    }
+
+    // Link Auth0 account if not already linked
+    if (!user.auth0UserId) {
+      const providerMatch = sub.split("|")[0];
+      const provider = providerMatch.replace("-oauth2", "").replace("auth0", "email");
+
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          auth0UserId: sub,
+          oauthProvider: provider,
+          oauthLinkedAt: new Date(),
+          verified: emailVerified || user.verified,
+          lastLogin: new Date(),
+        },
+      });
+    } else {
+      // Update last login
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { lastLogin: new Date() },
+      });
+    }
+
+    // Check if user needs to set password first
+    if (!user.password) {
+      const resetToken = uuidv4();
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 1);
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          resetToken,
+          expiresAt,
+        },
+      });
+
+      return res.json({
+        needsPasswordSetup: true,
+        resetToken,
+        utorid: user.utorid,
+        email: user.email,
+      });
+    }
+
+    // Generate JWT token
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        utorid: user.utorid,
+        role: user.role,
+      },
+      JWT_SECRET,
+      {
+        expiresIn: "7d",
+      }
+    );
+
+    return res.json({
+      token,
+      expiresAt,
+      user: {
+        id: user.id,
+        utorid: user.utorid,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        verified: user.verified,
+      },
+    });
+  } catch (error) {
+    console.error("OAuth token error:", error.message);
+    return res.status(500).json({
+      error: "OAuth authentication failed",
     });
   }
 });
