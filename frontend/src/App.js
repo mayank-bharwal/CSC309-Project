@@ -41,6 +41,15 @@ import EventDetailPage from "./pages/Regular/EventsDetailPage";
 import ListTransactionsPage from './pages/Regular/PastTransactionPage';
 import UnprocessedRedemptionPage from './pages/Regular/UnprocessedQRPage';
 
+// Event Organizer Pages
+import MyEventsPage from "./pages/EventOrganizer/MyEventsPage";
+import EventDetailPage from "./pages/EventOrganizer/EventDetailPage";
+import AddGuestPage from "./pages/EventOrganizer/AddGuestPage";
+import AwardPointsPage from "./pages/EventOrganizer/AwardPointsPage";
+
+// Super User Pages
+import PromoteUserPage from "./pages/SuperUser/PromoteUserPage";
+
 // Protected Route for Manager
 const ManagerRoute = ({ children }) => {
   const { user, loading, isManager } = useAuth();
@@ -222,7 +231,15 @@ function App() {
                 <ProtectedRoute><UnprocessedRedemptionPage /></ProtectedRoute>
               } />
             </Route>
+          
+          {/* Event Organizer Routes */}
+            <Route path="/event-organizer/events" element={<MyEventsPage />} />
+            <Route path="/event-organizer/events/:eventId" element={<EventDetailPage />} />
+            <Route path="/event-organizer/events/:eventId/add-guest" element={<AddGuestPage />} />
+            <Route path="/event-organizer/events/:eventId/award-points" element={<AwardPointsPage />} />
 
+          {/* Super User Routes */}
+              <Route path="/superuser/promote" element={<PromoteUserPage />} />
 
 
             <Route path="*" element={<Navigate to="/" replace />} />
