@@ -5,6 +5,7 @@ import {
   useEffect,
   useCallback,
 } from "react";
+import { useAuth0 } from "@auth0/auth0-react";
 
 const API_URL = process.env.REACT_APP_API_URL || '';
 
@@ -14,6 +15,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem("authToken"));
   const [loading, setLoading] = useState(true);
+  const { logout: auth0Logout } = useAuth0();
 
   const fetchUser = useCallback(async () => {
     if (!token) {
@@ -80,6 +82,10 @@ export const AuthProvider = ({ children }) => {
         throw new Error(data.error || "Login failed");
       }
 
+      if (data.needsPasswordSetup) {
+        return data;
+      }
+
       localStorage.setItem("authToken", data.token);
       setToken(data.token);
 
@@ -111,6 +117,16 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem("authToken");
     setToken(null);
     setUser(null);
+
+    try {
+      auth0Logout({
+        logoutParams: {
+          returnTo: window.location.origin + '/login',
+        },
+      });
+    } catch (error) {
+      console.error('Error logging out from Auth0:', error);
+    }
   };
 
   const isManager = () => {

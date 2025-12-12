@@ -33,9 +33,113 @@ const path = require("path");
 const fs = require("fs");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const axios = require("axios");
+const nodemailer = require("nodemailer");
 
 const app = express();
 const prisma = new PrismaClient();
+
+// Email service configuration
+function createEmailTransporter() {
+  return nodemailer.createTransport({
+    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.EMAIL_PORT || '587', 10),
+    secure: false,
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
+}
+
+const emailTransporter = process.env.EMAIL_USER && process.env.EMAIL_PASS
+  ? createEmailTransporter()
+  : null;
+
+async function sendActivationEmail(user, resetToken) {
+  if (!emailTransporter) {
+    console.log('Email service not configured. Skipping activation email.');
+    return;
+  }
+
+  try {
+    const activationLink = `${process.env.FRONTEND_URL || 'http://localhost:3001'}/set-password?token=${resetToken}&utorid=${user.utorid}`;
+
+    await emailTransporter.sendMail({
+      from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+      to: user.email,
+      subject: 'Activate Your Loyalty Program Account',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #4F46E5;">Welcome to Loyalty Program!</h2>
+          <p>Hello ${user.name},</p>
+          <p>Your account has been created. To activate your account and set your password, please click the link below:</p>
+          <p style="margin: 30px 0;">
+            <a href="${activationLink}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+              Set Your Password
+            </a>
+          </p>
+          <p style="color: #666; font-size: 14px;">
+            Or copy and paste this link in your browser:<br>
+            <a href="${activationLink}">${activationLink}</a>
+          </p>
+          <p style="color: #666; font-size: 14px;">
+            This link will expire in 7 days.
+          </p>
+          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+          <p style="color: #999; font-size: 12px;">
+            If you didn't request this account, please ignore this email.
+          </p>
+        </div>
+      `,
+    });
+    console.log(`Activation email sent to ${user.email}`);
+  } catch (error) {
+    console.error('Error sending activation email:', error);
+  }
+}
+
+async function sendPasswordResetEmail(user, resetToken) {
+  if (!emailTransporter) {
+    console.log('Email service not configured. Skipping password reset email.');
+    return;
+  }
+
+  try {
+    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:3001'}/set-password?token=${resetToken}&utorid=${user.utorid}`;
+
+    await emailTransporter.sendMail({
+      from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+      to: user.email,
+      subject: 'Reset Your Password',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #4F46E5;">Password Reset Request</h2>
+          <p>Hello ${user.name},</p>
+          <p>We received a request to reset your password. Click the link below to set a new password:</p>
+          <p style="margin: 30px 0;">
+            <a href="${resetLink}" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+              Reset Password
+            </a>
+          </p>
+          <p style="color: #666; font-size: 14px;">
+            Or copy and paste this link in your browser:<br>
+            <a href="${resetLink}">${resetLink}</a>
+          </p>
+          <p style="color: #666; font-size: 14px;">
+            This link will expire in 1 hour.
+          </p>
+          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+          <p style="color: #999; font-size: 12px;">
+            If you didn't request this password reset, please ignore this email.
+          </p>
+        </div>
+      `,
+    });
+    console.log(`Password reset email sent to ${user.email}`);
+  } catch (error) {
+    console.error('Error sending password reset email:', error);
+  }
+}
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -602,8 +706,22 @@ app.post("/auth/tokens", async (req, res) => {
     }
 
     if (!user.password) {
-      return res.status(401).json({
-        error: "Invalid credentials",
+      const resetToken = uuidv4();
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 1);
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          resetToken,
+          expiresAt,
+        },
+      });
+
+      return res.status(200).json({
+        needsPasswordSetup: true,
+        resetToken,
+        utorid: user.utorid,
       });
     }
 
@@ -738,6 +856,28 @@ app.post("/auth/oauth/callback", async (req, res) => {
       });
     }
 
+    // Check if user needs to set password
+    if (!user.password) {
+      const resetToken = uuidv4();
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 1);
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          resetToken,
+          expiresAt,
+        },
+      });
+
+      return res.json({
+        needsPasswordSetup: true,
+        resetToken,
+        utorid: user.utorid,
+        email: user.email,
+      });
+    }
+
     // Generate JWT token (same as password login)
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
@@ -822,6 +962,8 @@ app.post("/auth/resets", async (req, res) => {
         expiresAt,
       },
     });
+
+    sendPasswordResetEmail(user, resetToken);
 
     return res.status(202).json({
       expiresAt,
@@ -943,6 +1085,8 @@ app.post("/users", jwtMiddleware, requireRole("cashier"), async (req, res) => {
         role: "regular",
       },
     });
+
+    sendActivationEmail(user, resetToken);
 
     return res.status(201).json({
       id: user.id,
